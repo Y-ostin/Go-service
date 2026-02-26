@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Dashboard Ejecutivo — Resultados Financieros</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:       #0f172a;
+      --surface:  #1e293b;
+      --border:   #334155;
+      --text:     #e2e8f0;
+      --muted:    #64748b;
+      --blue:     #38bdf8;
+      --green:    #22c55e;
+      --red:      #ef4444;
+      --yellow:   #f59e0b;
+      --purple:   #a78bfa;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+    /* ── HEADER ── */
+    .header{
+      display:flex;align-items:center;justify-content:space-between;
+      padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);
+      flex-wrap:wrap;gap:8px;
+    }
+    .header-left{display:flex;align-items:center;gap:12px}
+    .logo-btn{
+      background:var(--border);border:none;color:var(--muted);padding:6px 12px;
+      border-radius:6px;cursor:pointer;font-size:0.78rem;
+    }
+    .header h1{font-size:1rem;font-weight:600;color:var(--text)}
+    .data-badge{
+      background:#1d4ed8;color:#93c5fd;padding:6px 14px;
+      border-radius:6px;font-size:0.75rem;font-weight:600;
+    }
+    .header-right{display:flex;align-items:center;gap:10px}
+    .sse-dot{width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0}
+    .sse-dot.on{background:var(--green);animation:blink 1.5s infinite}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+    .sse-label{font-size:0.72rem;color:var(--muted)}
+    .filter-group{display:flex;gap:6px;align-items:center}
+    .filter-group label{font-size:0.75rem;color:var(--muted)}
+    .filter-group select{
+      background:var(--surface);border:1px solid var(--border);color:var(--text);
+      padding:4px 8px;border-radius:6px;font-size:0.75rem;cursor:pointer;
+    }
+
+    /* ── LAYOUT ── */
+    .main{padding:16px;display:flex;flex-direction:column;gap:14px}
+
+    /* ── KPI ROW ── */
+    .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .kpi-card{
+      background:var(--surface);border-radius:10px;padding:14px 16px;
+      border:1px solid var(--border);
+    }
+    .kpi-title{font-size:0.7rem;color:var(--blue);font-weight:600;text-align:center;margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em}
+    .kpi-values{display:flex;align-items:flex-end;justify-content:space-around;gap:8px}
+    .kpi-main{text-align:center}
+    .kpi-main .val{font-size:1.5rem;font-weight:700;color:var(--text)}
+    .kpi-main .lbl{font-size:0.65rem;color:var(--muted);margin-top:2px}
+    .kpi-badge{
+      font-size:0.8rem;font-weight:700;padding:4px 10px;border-radius:6px;
+      min-width:70px;text-align:center;
+    }
+    .badge-green{background:#14532d;color:var(--green)}
+    .badge-red{background:#450a0a;color:var(--red)}
+    .badge-yellow{background:#451a03;color:var(--yellow)}
+
+    /* ── CHARTS ROW MIDDLE ── */
+    .charts-row{display:grid;grid-template-columns:280px 1fr 260px;gap:12px;align-items:start}
+    .chart-card{
+      background:var(--surface);border-radius:10px;padding:14px 16px;
+      border:1px solid var(--border);
+    }
+    .chart-title{font-size:0.75rem;color:var(--blue);font-weight:600;margin-bottom:12px}
+    .chart-canvas-wrap{position:relative}
+    .trend-controls{display:flex;gap:6px;align-items:center;justify-content:flex-end;margin-bottom:6px;flex-wrap:wrap}
+    .trend-controls button{
+      background:var(--border);border:1px solid transparent;color:var(--muted);
+      padding:3px 10px;border-radius:5px;cursor:pointer;font-size:0.72rem;
+    }
+    .trend-controls button.active{border-color:var(--blue);color:var(--blue)}
+
+    /* ── BOTTOM ROW ── */
+    .bottom-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px}
+    .small-kpi{
+      background:var(--surface);border-radius:10px;padding:14px 16px;
+      border:1px solid var(--border);text-align:center;
+    }
+    .small-kpi .s-title{font-size:0.7rem;color:var(--blue);font-weight:600;margin-bottom:8px;text-transform:uppercase}
+    .small-kpi .s-val{font-size:1.4rem;font-weight:700;color:var(--text)}
+    .small-kpi .s-sub{font-size:0.65rem;color:var(--muted);margin-top:4px}
+
+    /* ── TOP RISK ── */
+    .risk-card{background:var(--surface);border-radius:10px;padding:14px 16px;border:1px solid var(--border)}
+    .risk-title{font-size:0.7rem;color:var(--blue);font-weight:600;text-align:center;margin-bottom:10px;text-transform:uppercase}
+    .risk-row{display:flex;align-items:center;justify-content:space-around;gap:8px}
+
+    /* ── ALERT CARD ── */
+    .alert-card{
+      background:var(--surface);border-radius:10px;padding:14px 16px;
+      border:1px solid var(--border);text-align:center;
+    }
+    .alert-title{font-size:0.7rem;color:var(--blue);font-weight:600;text-transform:uppercase;margin-bottom:6px}
+    .alert-val{font-size:1.4rem;font-weight:700;color:var(--yellow)}
+    .alert-sub{font-size:0.65rem;color:var(--muted);margin-top:4px}
+
+    /* ── EVENTS LOG ── */
+    .log-card{
+      background:var(--surface);border-radius:10px;padding:14px 16px;
+      border:1px solid var(--border);margin-top:2px;
+    }
+    .log-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+    .log-header span{font-size:0.75rem;color:var(--blue);font-weight:600}
+    .log-header button{
+      background:var(--border);border:none;color:var(--muted);
+      padding:3px 10px;border-radius:5px;cursor:pointer;font-size:0.72rem;
+    }
+    .log-list{display:flex;flex-direction:column;gap:4px;max-height:140px;overflow-y:auto}
+    .log-list::-webkit-scrollbar{width:3px}
+    .log-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+    .log-item{
+      display:flex;align-items:center;gap:8px;padding:5px 8px;
+      background:var(--bg);border-radius:6px;font-size:0.72rem;
+      animation:fadeIn .2s ease;
+    }
+    @keyframes fadeIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+    .log-badge{font-size:0.6rem;font-weight:700;padding:2px 6px;border-radius:3px;min-width:46px;text-align:center}
+    .log-badge.INSERT{background:#14532d;color:var(--green)}
+    .log-badge.UPDATE{background:#451a03;color:var(--yellow)}
+    .log-badge.DELETE{background:#450a0a;color:var(--red)}
+    .log-concept{color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .log-amount{color:var(--green);font-weight:600;min-width:80px;text-align:right}
+    .log-time{color:var(--muted);min-width:55px;text-align:right}
+
+    .no-data{color:var(--muted);font-size:0.75rem;text-align:center;padding:16px}
+
+    /* ── SPARKLINE INLINE ── */
+    .spark-wrap{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:6px}
+    .spark-prev{font-size:0.65rem;color:var(--muted)}
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-left">
+    <button class="logo-btn">⬆ Upload Logo</button>
+    <h1>Dashboard Ejecutivo — Resultados Financieros Mensuales</h1>
+  </div>
+  <div class="data-badge">
+    Data Last Updated on | <span id="last-update">—</span>
+  </div>
+  <div class="header-right">
+    <div class="filter-group">
+      <label>Mes</label>
+      <select id="filter-mes" onchange="applyFilters()">
+        <option value="All">All</option>
+        <option>Ene</option><option>Feb</option><option>Mar</option>
+        <option>Abr</option><option>May</option><option>Jun</option>
+        <option>Jul</option><option>Ago</option><option>Sep</option>
+        <option>Oct</option><option>Nov</option><option>Dic</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Año</label>
+      <select id="filter-anio" onchange="applyFilters()">
+        <option value="All">All</option>
+        <option>2024</option><option>2025</option><option>2026</option>
+      </select>
+    </div>
+    <div class="sse-dot" id="dot"></div>
+    <span class="sse-label" id="sse-status">Conectando…</span>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- KPI ROW -->
+  <div class="kpi-row">
+    <!-- Ingresos -->
+    <div class="kpi-card">
+      <div class="kpi-title">Ingresos mensuales (SOLES) ←API</div>
+      <div class="kpi-values">
+        <div class="kpi-main">
+          <div class="val" id="kpi-ingreso-actual">0.00</div>
+          <div class="lbl">Mes actual (S./)</div>
+        </div>
+        <div class="kpi-main">
+          <div class="val" id="kpi-ingreso-meta">0.00</div>
+          <div class="lbl">Meta (S./)</div>
+        </div>
+        <div class="kpi-badge badge-green" id="kpi-ingreso-var">—</div>
+      </div>
+    </div>
+    <!-- Gastos -->
+    <div class="kpi-card">
+      <div class="kpi-title">Gastos mensuales (SOLES)</div>
+      <div class="kpi-values">
+        <div class="kpi-main">
+          <div class="val" id="kpi-gasto-actual">0.00</div>
+          <div class="lbl">Mes Actual (S./)</div>
+        </div>
+        <div class="kpi-main">
+          <div class="val" id="kpi-gasto-meta">0.00</div>
+          <div class="lbl">Meta (S./)</div>
+        </div>
+        <div class="kpi-badge badge-red" id="kpi-gasto-var">—</div>
+      </div>
+    </div>
+    <!-- Resultado -->
+    <div class="kpi-card">
+      <div class="kpi-title">Resultado (SOLES)</div>
+      <div class="kpi-values">
+        <div class="kpi-main">
+          <div class="val" id="kpi-resultado-actual">0.00</div>
+          <div class="lbl">Mes Actual (S./)</div>
+        </div>
+        <div class="kpi-main">
+          <div class="val" id="kpi-resultado-meta">0.00</div>
+          <div class="lbl">Meta (S./)</div>
+        </div>
+        <div class="kpi-badge badge-green" id="kpi-resultado-var">—</div>
+      </div>
+    </div>
+    <!-- Margen -->
+    <div class="kpi-card">
+      <div class="kpi-title">Margen (%)</div>
+      <div class="kpi-values">
+        <div class="kpi-main">
+          <div class="val" id="kpi-margen-actual">0.0</div>
+          <div class="lbl">Mes Actual (%)</div>
+        </div>
+        <div class="kpi-main">
+          <div class="val" id="kpi-margen-meta">0.0</div>
+          <div class="lbl">Meta (%)</div>
+        </div>
+        <div class="kpi-badge badge-green" id="kpi-margen-var">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARTS MIDDLE ROW -->
+  <div class="charts-row">
+
+    <!-- Gastos por línea de negocio -->
+    <div class="chart-card">
+      <div class="chart-title">Gastos por línea de negocio (Zona)</div>
+      <div class="chart-canvas-wrap">
+        <canvas id="chart-linea" height="220"></canvas>
+      </div>
+    </div>
+
+    <!-- Tendencia -->
+    <div class="chart-card">
+      <div class="chart-title" style="display:flex;align-items:center;justify-content:space-between">
+        <span>Tendencia ingresos gastos y resultados</span>
+        <div class="trend-controls">
+          <button class="active" onclick="setTrendView('mensual',this)">Mensual</button>
+          <button onclick="setTrendView('trimestral',this)">Trimestral</button>
+        </div>
+      </div>
+      <canvas id="chart-trend" height="200"></canvas>
+    </div>
+
+    <!-- Composición de gastos -->
+    <div class="chart-card">
+      <div class="chart-title">Composición de gastos (Tipo)</div>
+      <div class="chart-canvas-wrap">
+        <canvas id="chart-composicion" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM ROW -->
+  <div class="bottom-row">
+
+    <!-- Punto de equilibrio -->
+    <div class="small-kpi">
+      <div class="s-title">Punto de Equilibrio</div>
+      <div class="s-val" id="pe-val">0.00</div>
+      <div class="s-sub spark-wrap">
+        <span class="spark-prev" id="pe-prev">Mes previo (S./) 0.00</span>
+        <span class="kpi-badge badge-green" id="pe-var" style="font-size:.62rem;padding:2px 6px">—</span>
+      </div>
+    </div>
+
+    <!-- Alerta ejecutiva -->
+    <div class="alert-card">
+      <div class="alert-title">Alerta ejecutiva del mes</div>
+      <div class="alert-val" id="alerta-val">—</div>
+      <div class="alert-sub" id="alerta-desc">Sin alertas activas</div>
+    </div>
+
+    <!-- Top 3 riesgo -->
+    <div class="risk-card">
+      <div class="risk-title">Top 3 riesgo del mes</div>
+      <div class="risk-row">
+        <div class="kpi-main">
+          <div class="val" id="risk-val1" style="font-size:1.1rem">0</div>
+          <div class="lbl" id="risk-lbl1">—</div>
+        </div>
+        <div class="kpi-main">
+          <div class="val" id="risk-val2" style="font-size:1.1rem">0</div>
+          <div class="lbl" id="risk-lbl2">—</div>
+        </div>
+        <div class="kpi-badge badge-green" id="risk-var">—</div>
+      </div>
+    </div>
+
+    <!-- Ratio Gasto/Ingreso -->
+    <div class="small-kpi">
+      <div class="s-title">Ratio Gasto / Ingreso (%)</div>
+      <div class="s-val" id="ratio-val">0.0</div>
+      <div class="s-sub spark-wrap">
+        <span class="spark-prev" id="ratio-prev">Mes previo 0.0%</span>
+        <span class="kpi-badge badge-green" id="ratio-var" style="font-size:.62rem;padding:2px 6px">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- EVENTS LOG -->
+  <div class="log-card">
+    <div class="log-header">
+      <span>⚡ Eventos binlog en tiempo real — general_expenses</span>
+      <button onclick="clearLog()">Limpiar log</button>
+    </div>
+    <div class="log-list" id="log-list">
+      <div class="no-data" id="log-empty">Esperando transacciones en la base de datos…</div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+// ESTADO GLOBAL
+// ══════════════════════════════════════════════════════════════════════════════
+const SSE_URL = 'http://localhost:8090/events';
+const TARGET_TABLES = ['general_expenses'];
+
+// Simular datos históricos base (en producción vendrían de la API Laravel)
+// Cuando llega un evento SSE de general_expenses, actualizamos en tiempo real
+let state = {
+  // Acumuladores del mes actual (actualizados por SSE)
+  ingresoActual:   0,
+  gastoActual:     0,
+  // Datos históricos por mes (últimos 12)
+  meses: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'],
+  ingresos:  [6200, 6800, 7100, 6500, 7500, 7200, 7800, 8100, 7900, 8300, 8600, 8000],
+  gastos:    [4800, 5100, 5300, 4900, 5400, 5200, 5600, 5800, 5500, 5700, 5900, 5200],
+  // Gastos por zona / línea de negocio (campo `zone` en general_expenses)
+  lineas: {
+    'Huawei':              3850000,
+    'FLM':                 2920000,
+    'Misceláneos':         1680000,
+    'AC-Móviles':          1250000,
+    'Staff Craft':          980000,
+    'Proyectos SC':         720000,
+    'Sin zona':             310000,
+  },
+  // Composición de gastos por tipo (ProjectConstants::EXP_TYPE_*)
+  composicion: {
+    'Planilla':            2240000,   // payroll
+    'Gasto PEXT':          1980000,   // pext_expense
+    'Adicional':           1450000,   // additional
+    'Fijo / Estático':     1120000,   // static
+    'Administrativo':       840000,   // administrative
+    'Deducciones':          520000,   // deduction
+  },
+  // Meta del mes
+  metaIngreso:  6900,
+  metaGasto:    5800,
+  prevIngreso:  6900,
+  prevGasto:    5800,
+  logEvents: [],
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CHARTS SETUP
+// ══════════════════════════════════════════════════════════════════════════════
+const PALETTE_DONUT = [
+  '#38bdf8','#22c55e','#f59e0b','#a78bfa','#f472b6','#fb923c','#34d399','#60a5fa'
+];
+
+const chartLinea = new Chart(document.getElementById('chart-linea'), {
+  type: 'doughnut',
+  data: {
+    labels: Object.keys(state.lineas),
+    datasets: [{
+      data: Object.values(state.lineas),
+      backgroundColor: PALETTE_DONUT,
+      borderWidth: 0,
+      hoverOffset: 8,
+    }]
+  },
+  options: {
+    cutout: '65%',
+    plugins: {
+      legend: {
+        position: 'right',
+        labels: {
+          color: '#94a3b8', font: { size: 9 },
+          generateLabels: (chart) => chart.data.labels.map((lbl, i) => ({
+            text: `${lbl}\n${fmt(chart.data.datasets[0].data[i])} (${pct(chart.data.datasets[0].data[i], Object.values(state.lineas).reduce((a,b)=>a+b,0))}%)`,
+            fillStyle: PALETTE_DONUT[i],
+            strokeStyle: 'transparent',
+            index: i,
+          }))
+        }
+      },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.label}: S./ ${(ctx.raw/1000000).toFixed(2)}M (${pct(ctx.raw, ctx.dataset.data.reduce((a,b)=>a+b,0))}%)`
+        }
+      }
+    }
+  }
+});
+
+const chartComposicion = new Chart(document.getElementById('chart-composicion'), {
+  type: 'doughnut',
+  data: {
+    labels: Object.keys(state.composicion),
+    datasets: [{
+      data: Object.values(state.composicion),
+      backgroundColor: PALETTE_DONUT.slice(0).reverse(),
+      borderWidth: 0,
+      hoverOffset: 8,
+    }]
+  },
+  options: {
+    cutout: '65%',
+    plugins: {
+      legend: {
+        position: 'right',
+        labels: {
+          color: '#94a3b8', font: { size: 9 },
+          generateLabels: (chart) => chart.data.labels.map((lbl, i) => ({
+            text: `${lbl}\n${fmt(chart.data.datasets[0].data[i])} (${pct(chart.data.datasets[0].data[i], Object.values(state.composicion).reduce((a,b)=>a+b,0))}%)`,
+            fillStyle: PALETTE_DONUT.slice(0).reverse()[i],
+            strokeStyle: 'transparent',
+            index: i,
+          }))
+        }
+      }
+    }
+  }
+});
+
+const chartTrend = new Chart(document.getElementById('chart-trend'), {
+  type: 'bar',
+  data: {
+    labels: state.meses,
+    datasets: [
+      {
+        label: 'Ingresos (S/m)',
+        data: state.ingresos,
+        backgroundColor: 'rgba(99, 102, 241, 0.7)',
+        borderRadius: 3,
+        order: 2,
+      },
+      {
+        label: 'Gastos (S/m)',
+        data: state.gastos,
+        backgroundColor: 'rgba(139, 92, 246, 0.6)',
+        borderRadius: 3,
+        order: 2,
+      },
+      {
+        label: 'Resultado (S/m)',
+        data: state.ingresos.map((v,i) => v - state.gastos[i]),
+        type: 'line',
+        borderColor: '#f97316',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        pointRadius: 3,
+        pointBackgroundColor: '#f97316',
+        tension: 0.4,
+        order: 1,
+        yAxisID: 'y2',
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: {
+        labels: { color: '#94a3b8', font: { size: 10 } }
+      }
+    },
+    scales: {
+      x: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: '#1e293b' } },
+      y: {
+        ticks: { color: '#64748b', font: { size: 9 },
+          callback: v => (v/1000).toFixed(0)+'k' },
+        grid: { color: '#1e293b' }
+      },
+      y2: {
+        position: 'right',
+        ticks: { color: '#64748b', font: { size: 9 },
+          callback: v => (v/1000).toFixed(0)+'k' },
+        grid: { drawOnChartArea: false }
+      }
+    }
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// KPI RENDER
+// ══════════════════════════════════════════════════════════════════════════════
+function renderKPIs() {
+  const ing  = state.ingresos[state.ingresos.length - 1] * 1000 + state.ingresoActual;
+  const gst  = state.gastos[state.gastos.length - 1] * 1000 + state.gastoActual;
+  const res  = ing - gst;
+  const mar  = ing > 0 ? (res / ing * 100) : 0;
+  const ratio= ing > 0 ? (gst / ing * 100) : 0;
+  const pe   = gst; // punto de equilibrio = gastos totales que deben cubrirse con ingresos
+
+  const metaIng = state.metaIngreso * 1000;
+  const metaGst = state.metaGasto  * 1000;
+  const metaRes = metaIng - metaGst;
+  const metaMar = metaIng > 0 ? (metaRes / metaIng * 100) : 0;
+
+  const varIng = metaIng > 0 ? ((ing - metaIng) / metaIng * 100) : 0;
+  const varGst = metaGst > 0 ? ((gst - metaGst) / metaGst * 100) : 0;
+  const varRes = metaRes !== 0 ? ((res - metaRes) / Math.abs(metaRes) * 100) : 0;
+  const varMar = metaMar > 0 ? ((mar - metaMar) / metaMar * 100) : 0;
+
+  // Ingresos
+  set('kpi-ingreso-actual', fmtK(ing));
+  set('kpi-ingreso-meta',   fmtK(metaIng));
+  setBadge('kpi-ingreso-var', varIng, true);
+
+  // Gastos (inverso: subir gasto = malo)
+  set('kpi-gasto-actual', fmtK(gst));
+  set('kpi-gasto-meta',   fmtK(metaGst));
+  setBadge('kpi-gasto-var', varGst, false);
+
+  // Resultado
+  set('kpi-resultado-actual', fmtK(res));
+  set('kpi-resultado-meta',   fmtK(metaRes));
+  setBadge('kpi-resultado-var', varRes, true);
+
+  // Margen
+  set('kpi-margen-actual', mar.toFixed(1));
+  set('kpi-margen-meta',   metaMar.toFixed(1));
+  setBadge('kpi-margen-var', varMar, true);
+
+  // Punto equilibrio
+  set('pe-val', fmtK(pe));
+  set('pe-prev', `Mes previo (S./) ${fmtK(state.prevGasto * 1000)}`);
+  const varPe = state.prevGasto > 0 ? ((pe - state.prevGasto*1000)/(state.prevGasto*1000)*100) : 0;
+  setBadge('pe-var', varPe, false, true);
+
+  // Ratio
+  set('ratio-val', ratio.toFixed(1));
+  set('ratio-prev', `Mes previo ${(state.prevGasto / state.prevIngreso * 100).toFixed(1)}%`);
+  const varRatio = state.prevIngreso > 0
+    ? ((ratio - state.prevGasto/state.prevIngreso*100) / (state.prevGasto/state.prevIngreso*100) * 100)
+    : 0;
+  setBadge('ratio-var', varRatio, false, true);
+
+  // Alerta ejecutiva
+  renderAlerta(ing, gst, ratio, mar);
+
+  // Top 3 riesgo
+  renderRisk();
+
+  // Fecha de última actualización
+  set('last-update', new Date().toLocaleDateString('es-PE', {day:'2-digit',month:'short',year:'numeric'}));
+}
+
+function renderAlerta(ing, gst, ratio, mar) {
+  let msg = '✅ Operación normal';
+  let val = '';
+  let cls = 'badge-green';
+
+  if (ratio > 85) {
+    msg = '⚠️ Ratio gasto/ingreso crítico';
+    val = ratio.toFixed(1) + '%';
+    cls = 'badge-red';
+  } else if (mar < 10) {
+    msg = '⚠️ Margen operativo bajo';
+    val = mar.toFixed(1) + '%';
+    cls = 'badge-yellow';
+  } else if (gst > ing) {
+    msg = '🚨 Gastos superan ingresos';
+    val = fmtK(gst - ing);
+    cls = 'badge-red';
+  } else {
+    val = fmtK(ing);
+  }
+
+  const alertVal = document.getElementById('alerta-val');
+  alertVal.textContent = val || msg;
+  alertVal.className = 'alert-val kpi-badge ' + cls;
+  document.getElementById('alerta-desc').textContent = msg;
+}
+
+function renderRisk() {
+  // Top 3 líneas con mayor gasto relativo (simulated)
+  const sorted = Object.entries(state.composicion)
+    .sort((a,b) => b[1]-a[1]).slice(0,2);
+
+  set('risk-val1', fmtK(sorted[0]?.[1] ?? 0));
+  set('risk-lbl1', sorted[0]?.[0] ?? '—');
+  set('risk-val2', fmtK(sorted[1]?.[1] ?? 0));
+  set('risk-lbl2', sorted[1]?.[0] ?? '—');
+
+  const totalGst = Object.values(state.composicion).reduce((a,b)=>a+b,0);
+  const top2 = (sorted[0]?.[1] ?? 0) + (sorted[1]?.[1] ?? 0);
+  const varRisk = totalGst > 0 ? (top2/totalGst*100) : 0;
+  setBadge('risk-var', varRisk - 50, false, true);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SSE — CONEXIÓN Y PROCESAMIENTO DE EVENTOS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Mapeo de ProjectConstants::EXP_TYPE_* a etiquetas legibles
+const TYPE_LABELS = {
+  'additional':    'Adicional',
+  'static':        'Fijo / Estático',
+  'payroll':       'Planilla',
+  'pext_expense':  'Gasto PEXT',
+  'deduction':     'Deducciones',
+  'administrative':'Administrativo',
+};
+
+function connectSSE() {
+  const es = new EventSource(SSE_URL);
+
+  es.onopen = () => {
+    document.getElementById('dot').classList.add('on');
+    document.getElementById('sse-status').textContent = 'En tiempo real';
+  };
+  es.onerror = () => {
+    document.getElementById('dot').classList.remove('on');
+    document.getElementById('sse-status').textContent = 'Reconectando…';
+  };
+
+  es.onmessage = (e) => {
+    try {
+      const evt = JSON.parse(e.data);
+      if (!TARGET_TABLES.includes(evt.table)) return;
+      processBinlogEvent(evt);
+    } catch { /* keepalive / comentario SSE, ignorar */ }
+  };
+}
+
+/**
+ * general_expenses solo contiene EGRESOS.
+ * Tipos (campo `type`):  additional | static | payroll | pext_expense | deduction | administrative
+ * Línea de negocio:      campo `zone`
+ * Categoría de gasto:    campo `expense_type`
+ *
+ * Los INGRESOS provienen de otro módulo (account_statements / billing).
+ * En el estado inicial se cargan con datos históricos; los eventos SSE actualizan
+ * únicamente los gastos en tiempo real.
+ */
+function processBinlogEvent(evt) {
+  const row    = evt.after || evt.before || {};
+  const amount  = parseFloat(row.amount) || 0;
+  const rawType = (row.type || 'Otros').toLowerCase();
+  const zone    = row.zone    || 'Sin zona';
+  const expType = row.expense_type || 'Otros';
+  const concept = row.operation_number || row.doc_number || TYPE_LABELS[rawType] || rawType;
+
+  // La etiqueta para el donut de composición es el type de ProjectConstants
+  const composKey = TYPE_LABELS[rawType] || rawType;
+
+  if (evt.type === 'INSERT') {
+    state.gastoActual += amount;
+    state.composicion[composKey] = (state.composicion[composKey] || 0) + amount;
+    // Para el donut de zonas en gastos también registramos por zone
+    state.lineas[zone] = (state.lineas[zone] || 0) + amount;
+  } else if (evt.type === 'UPDATE') {
+    const prevAmount = parseFloat((evt.before || {}).amount) || 0;
+    const diff = amount - prevAmount;
+    state.gastoActual += diff;
+    state.composicion[composKey] = Math.max(0, (state.composicion[composKey] || 0) + diff);
+    state.lineas[zone] = Math.max(0, (state.lineas[zone] || 0) + diff);
+  } else if (evt.type === 'DELETE') {
+    state.gastoActual = Math.max(0, state.gastoActual - amount);
+    state.composicion[composKey] = Math.max(0, (state.composicion[composKey] || 0) - amount);
+    state.lineas[zone] = Math.max(0, (state.lineas[zone] || 0) - amount);
+  }
+
+  updateCharts();
+  renderKPIs();
+  addToLog(evt, concept, amount, false); // false = es gasto
+}
+
+function updateCharts() {
+  // Donut líneas
+  chartLinea.data.labels = Object.keys(state.lineas);
+  chartLinea.data.datasets[0].data = Object.values(state.lineas);
+  chartLinea.update('none');
+
+  // Donut composición
+  chartComposicion.data.labels = Object.keys(state.composicion);
+  chartComposicion.data.datasets[0].data = Object.values(state.composicion);
+  chartComposicion.update('none');
+
+  // Trend — actualizar último mes
+  const last = state.ingresos.length - 1;
+  chartTrend.data.datasets[0].data[last] =
+    (state.ingresos[last] * 1000 + state.ingresoActual) / 1000;
+  chartTrend.data.datasets[1].data[last] =
+    (state.gastos[last] * 1000 + state.gastoActual) / 1000;
+  chartTrend.data.datasets[2].data =
+    chartTrend.data.datasets[0].data.map((v,i) =>
+      v - chartTrend.data.datasets[1].data[i]);
+  chartTrend.update('none');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LOG DE EVENTOS
+// ══════════════════════════════════════════════════════════════════════════════
+function addToLog(evt, concept, amount, isIngreso) {
+  document.getElementById('log-empty')?.remove();
+  const list = document.getElementById('log-list');
+  const time  = new Date().toLocaleTimeString('es-PE');
+  const item  = document.createElement('div');
+  item.className = 'log-item';
+  item.innerHTML = `
+    <span class="log-badge ${evt.type}">${evt.type}</span>
+    <span class="log-concept">${evt.table} · ${concept}</span>
+    <span class="log-amount" style="color:${isIngreso?'#22c55e':'#ef4444'}">
+      ${isIngreso?'+':'-'}S./ ${fmtK(amount)}
+    </span>
+    <span class="log-time">${time}</span>
+  `;
+  list.insertBefore(item, list.firstChild);
+  while (list.children.length > 50) list.removeChild(list.lastChild);
+}
+
+function clearLog() {
+  document.getElementById('log-list').innerHTML =
+    '<div class="no-data" id="log-empty">Log limpiado. Esperando transacciones…</div>';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════════════════════════════
+function fmt(n)    { return (n/1000).toFixed(0)+'k' }
+function fmtK(n)   { return Number(n).toLocaleString('es-PE', {minimumFractionDigits:2,maximumFractionDigits:2}) }
+function pct(v,t)  { return t>0?(v/t*100).toFixed(0):'0' }
+function set(id,v) { const el=document.getElementById(id); if(el) el.textContent=v }
+
+function setBadge(id, pctVal, positiveIsGood, small=false) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const good = positiveIsGood ? pctVal >= 0 : pctVal <= 0;
+  el.className = `kpi-badge ${good?'badge-green':'badge-red'}${small?' '+'':''}`;
+  if (small) el.style.cssText = 'font-size:.62rem;padding:2px 6px';
+  el.textContent = (pctVal >= 0 ? '+' : '') + pctVal.toFixed(1) + '%';
+}
+
+function setTrendView(view, btn) {
+  document.querySelectorAll('.trend-controls button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  if (view === 'trimestral') {
+    chartTrend.data.labels = ['Q1','Q2','Q3','Q4'];
+    chartTrend.data.datasets[0].data = [
+      state.ingresos.slice(0,3).reduce((a,b)=>a+b,0),
+      state.ingresos.slice(3,6).reduce((a,b)=>a+b,0),
+      state.ingresos.slice(6,9).reduce((a,b)=>a+b,0),
+      state.ingresos.slice(9,12).reduce((a,b)=>a+b,0),
+    ];
+    chartTrend.data.datasets[1].data = [
+      state.gastos.slice(0,3).reduce((a,b)=>a+b,0),
+      state.gastos.slice(3,6).reduce((a,b)=>a+b,0),
+      state.gastos.slice(6,9).reduce((a,b)=>a+b,0),
+      state.gastos.slice(9,12).reduce((a,b)=>a+b,0),
+    ];
+  } else {
+    chartTrend.data.labels = state.meses;
+    chartTrend.data.datasets[0].data = [...state.ingresos];
+    chartTrend.data.datasets[1].data = [...state.gastos];
+  }
+  chartTrend.data.datasets[2].data =
+    chartTrend.data.datasets[0].data.map((v,i) => v - chartTrend.data.datasets[1].data[i]);
+  chartTrend.update();
+}
+
+function applyFilters() { renderKPIs(); }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════════════════════
+renderKPIs();
+connectSSE();
+</script>
+</body>
+</html>

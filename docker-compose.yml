@@ -1,0 +1,135 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Stack para desarrollo local.
+# En producción usar docker-compose.prod.yml o Kubernetes manifests.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── MariaDB 10.4 con binlog habilitado ──────────────────────────────────────
+  mariadb:
+    image: mariadb:10.4.32
+    container_name: ccip_mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: ccip_erp_legacy
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: apppassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      # Configuración de MariaDB con binlog habilitado
+      - ./docker/mariadb/my.cnf:/etc/mysql/conf.d/binlog.cnf:ro
+      # Script de inicialización: crear usuario replicador
+      - ./docker/mariadb/init.sql:/docker-entrypoint-initdb.d/01_replicator.sql:ro
+    networks:
+      - ccip_net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Go Binlog Service ────────────────────────────────────────────────────────
+  go-binlog-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ccip_go_binlog
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      # Servidor
+      SERVER_PORT: "8090"
+      SERVER_MAX_CLIENTS: "200"
+
+      # ── Origen de la base de datos ──────────────────────────────────────────
+      # OPCIÓN A: MariaDB contenedor (activo)
+      DB_HOST: "mariadb"
+      # OPCIÓN B: XAMPP en el host — comentar la línea de arriba y descomentar esta:
+      # DB_HOST: "host.docker.internal"
+      DB_PORT: "3306"
+      DB_REPL_USER: "replicator"
+      DB_REPL_PASSWORD: "repl_password_seguro"
+      # CRÍTICO: server-id único, diferente al server-id del MariaDB (que es 1)
+      DB_SERVER_ID: "100"
+
+      # Binlog
+      BINLOG_FLAVOR: "mariadb"
+      BINLOG_USE_GTID: "false"
+      # Tablas a monitorear (separadas por coma)
+      # Vacío = monitorear todo el schema configurado
+      BINLOG_SCHEMAS: "ccip_erp_legacy"
+      BINLOG_TABLES: ""
+
+      # Persistencia de posición
+      POSITION_STORAGE: "file"
+      POSITION_FILE_PATH: "/data/binlog_position.json"
+
+      # Throttling
+      THROTTLE_MAX_EPS: "100"
+      THROTTLE_BATCH_SIZE: "50"
+      THROTTLE_WORKERS: "4"
+
+      # Logging
+      LOG_LEVEL: "debug"   # cambiar a "info" en producción
+      LOG_FORMAT: "console" # cambiar a "json" en producción
+    ports:
+      - "8090:8090"
+    volumes:
+      # Volumen persistente para la posición del binlog
+      - binlog_position:/data
+    networks:
+      - ccip_net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Prometheus (métricas) ────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: ccip_prometheus
+    restart: unless-stopped
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - ccip_net
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+
+  # ── Grafana (visualización) ──────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: ccip_grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    networks:
+      - ccip_net
+
+volumes:
+  mariadb_data:
+  binlog_position:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  ccip_net:
+    driver: bridge

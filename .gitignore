@@ -1,0 +1,7 @@
+.env
+*.log
+/data/
+binlog_position.json
+binlog_position.json.tmp
+*.corrupted
+vendor/
