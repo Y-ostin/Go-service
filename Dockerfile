@@ -37,8 +37,9 @@ RUN apk add --no-cache ca-certificates tzdata && \
 
 WORKDIR /app
 
-# Copiar solo el binario compilado desde el builder
+# Copiar el binario compilado y el dashboard estático
 COPY --from=builder /app/go-binlog-service .
+COPY --from=builder /app/dashboard.html .
 
 # Directorio para persistir la posición del binlog
 RUN mkdir -p /data && chown appuser:appgroup /data

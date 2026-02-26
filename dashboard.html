@@ -344,41 +344,30 @@
 const SSE_URL = 'http://localhost:8090/events';
 const TARGET_TABLES = ['general_expenses'];
 
-// Simular datos históricos base (en producción vendrían de la API Laravel)
-// Cuando llega un evento SSE de general_expenses, actualizamos en tiempo real
+// Estado global — KPIs se alimentan 100% desde SSE (parten en 0)
+// El gráfico de tendencia usa histórico real (valores en S/)
 let state = {
-  // Acumuladores del mes actual (actualizados por SSE)
-  ingresoActual:   0,
-  gastoActual:     0,
-  // Datos históricos por mes (últimos 12)
-  meses: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'],
-  ingresos:  [6200, 6800, 7100, 6500, 7500, 7200, 7800, 8100, 7900, 8300, 8600, 8000],
-  gastos:    [4800, 5100, 5300, 4900, 5400, 5200, 5600, 5800, 5500, 5700, 5900, 5200],
-  // Gastos por zona / línea de negocio (campo `zone` en general_expenses)
-  lineas: {
-    'Huawei':              3850000,
-    'FLM':                 2920000,
-    'Misceláneos':         1680000,
-    'AC-Móviles':          1250000,
-    'Staff Craft':          980000,
-    'Proyectos SC':         720000,
-    'Sin zona':             310000,
-  },
-  // Composición de gastos por tipo (ProjectConstants::EXP_TYPE_*)
-  composicion: {
-    'Planilla':            2240000,   // payroll
-    'Gasto PEXT':          1980000,   // pext_expense
-    'Adicional':           1450000,   // additional
-    'Fijo / Estático':     1120000,   // static
-    'Administrativo':       840000,   // administrative
-    'Deducciones':          520000,   // deduction
-  },
-  // Meta del mes
-  metaIngreso:  6900,
-  metaGasto:    5800,
-  prevIngreso:  6900,
-  prevGasto:    5800,
-  logEvents: [],
+  // ── Acumuladores SSE del mes actual (parten en 0, crecen con cada evento) ──
+  ingresoActual: 0,
+  gastoActual:   0,
+
+  // ── Histórico meses anteriores (solo para trend chart) ──
+  // Último elemento = mes actual, inicia en 0 y se actualiza con SSE
+  meses:    ['Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic','Ene','Feb*'],
+  ingresos: [320000,290000,315000,340000,298000,365000,410000,388000,420000,445000,390000, 0],
+  gastos:   [240000,215000,230000,258000,220000,275000,305000,291000,318000,332000,295000, 0],
+
+  // ── Donuts: vacíos al inicio, se llenan exclusivamente desde SSE ──
+  lineas:      {},   // zone → acumulado S/
+  composicion: {},   // tipo → acumulado S/
+
+  // ── Presupuesto del mes (meta referencial) ──
+  metaIngreso: 450000,    // S/ 450,000
+  metaGasto:   330000,    // S/ 330,000
+
+  // ── Mes previo para calcular variación ──
+  prevIngreso: 390000,
+  prevGasto:   295000,
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -416,7 +405,10 @@ const chartLinea = new Chart(document.getElementById('chart-linea'), {
       },
       tooltip: {
         callbacks: {
-          label: ctx => ` ${ctx.label}: S./ ${(ctx.raw/1000000).toFixed(2)}M (${pct(ctx.raw, ctx.dataset.data.reduce((a,b)=>a+b,0))}%)`
+          label: ctx => {
+            const total = ctx.dataset.data.reduce((a,b)=>a+b,0);
+            return ` ${ctx.label}: S./ ${fmtK(ctx.raw)} (${pct(ctx.raw, total)}%)`;
+          }
         }
       }
     }
@@ -453,27 +445,29 @@ const chartComposicion = new Chart(document.getElementById('chart-composicion'),
   }
 });
 
+const fmtAxis = v => v >= 1000000 ? (v/1000000).toFixed(1)+'M' : (v/1000).toFixed(0)+'k';
+
 const chartTrend = new Chart(document.getElementById('chart-trend'), {
   type: 'bar',
   data: {
     labels: state.meses,
     datasets: [
       {
-        label: 'Ingresos (S/m)',
-        data: state.ingresos,
+        label: 'Ingresos (S/)',
+        data: [...state.ingresos],
         backgroundColor: 'rgba(99, 102, 241, 0.7)',
         borderRadius: 3,
         order: 2,
       },
       {
-        label: 'Gastos (S/m)',
-        data: state.gastos,
+        label: 'Gastos (S/)',
+        data: [...state.gastos],
         backgroundColor: 'rgba(139, 92, 246, 0.6)',
         borderRadius: 3,
         order: 2,
       },
       {
-        label: 'Resultado (S/m)',
+        label: 'Resultado (S/)',
         data: state.ingresos.map((v,i) => v - state.gastos[i]),
         type: 'line',
         borderColor: '#f97316',
@@ -489,22 +483,16 @@ const chartTrend = new Chart(document.getElementById('chart-trend'), {
   },
   options: {
     responsive: true,
-    plugins: {
-      legend: {
-        labels: { color: '#94a3b8', font: { size: 10 } }
-      }
-    },
+    plugins: { legend: { labels: { color: '#94a3b8', font: { size: 10 } } } },
     scales: {
       x: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: '#1e293b' } },
       y: {
-        ticks: { color: '#64748b', font: { size: 9 },
-          callback: v => (v/1000).toFixed(0)+'k' },
+        ticks: { color: '#64748b', font: { size: 9 }, callback: fmtAxis },
         grid: { color: '#1e293b' }
       },
       y2: {
         position: 'right',
-        ticks: { color: '#64748b', font: { size: 9 },
-          callback: v => (v/1000).toFixed(0)+'k' },
+        ticks: { color: '#64748b', font: { size: 9 }, callback: fmtAxis },
         grid: { drawOnChartArea: false }
       }
     }
@@ -515,15 +503,16 @@ const chartTrend = new Chart(document.getElementById('chart-trend'), {
 // KPI RENDER
 // ══════════════════════════════════════════════════════════════════════════════
 function renderKPIs() {
-  const ing  = state.ingresos[state.ingresos.length - 1] * 1000 + state.ingresoActual;
-  const gst  = state.gastos[state.gastos.length - 1] * 1000 + state.gastoActual;
-  const res  = ing - gst;
-  const mar  = ing > 0 ? (res / ing * 100) : 0;
-  const ratio= ing > 0 ? (gst / ing * 100) : 0;
-  const pe   = gst; // punto de equilibrio = gastos totales que deben cubrirse con ingresos
+  // ── Valores 100% desde SSE — arrancan en 0 y crecen con cada INSERT/UPDATE/DELETE
+  const ing   = state.ingresoActual;          // S/ acumulado ingresos (SSE)
+  const gst   = state.gastoActual;            // S/ acumulado gastos   (SSE)
+  const res   = ing - gst;
+  const mar   = ing > 0 ? (res / ing * 100) : 0;
+  const ratio = gst > 0 ? (gst / (ing || gst) * 100) : 0;
+  const pe    = gst;
 
-  const metaIng = state.metaIngreso * 1000;
-  const metaGst = state.metaGasto  * 1000;
+  const metaIng = state.metaIngreso;
+  const metaGst = state.metaGasto;
   const metaRes = metaIng - metaGst;
   const metaMar = metaIng > 0 ? (metaRes / metaIng * 100) : 0;
 
@@ -554,16 +543,15 @@ function renderKPIs() {
 
   // Punto equilibrio
   set('pe-val', fmtK(pe));
-  set('pe-prev', `Mes previo (S./) ${fmtK(state.prevGasto * 1000)}`);
-  const varPe = state.prevGasto > 0 ? ((pe - state.prevGasto*1000)/(state.prevGasto*1000)*100) : 0;
+  set('pe-prev', `Mes previo (S./) ${fmtK(state.prevGasto)}`);
+  const varPe = state.prevGasto > 0 ? ((pe - state.prevGasto) / state.prevGasto * 100) : 0;
   setBadge('pe-var', varPe, false, true);
 
   // Ratio
   set('ratio-val', ratio.toFixed(1));
-  set('ratio-prev', `Mes previo ${(state.prevGasto / state.prevIngreso * 100).toFixed(1)}%`);
-  const varRatio = state.prevIngreso > 0
-    ? ((ratio - state.prevGasto/state.prevIngreso*100) / (state.prevGasto/state.prevIngreso*100) * 100)
-    : 0;
+  const prevRatio = state.prevIngreso > 0 ? (state.prevGasto / state.prevIngreso * 100) : 0;
+  set('ratio-prev', `Mes previo ${prevRatio.toFixed(1)}%`);
+  const varRatio = prevRatio > 0 ? ((ratio - prevRatio) / prevRatio * 100) : 0;
   setBadge('ratio-var', varRatio, false, true);
 
   // Alerta ejecutiva
@@ -698,25 +686,31 @@ function processBinlogEvent(evt) {
 }
 
 function updateCharts() {
-  // Donut líneas
-  chartLinea.data.labels = Object.keys(state.lineas);
-  chartLinea.data.datasets[0].data = Object.values(state.lineas);
-  chartLinea.update('none');
+  // ── Donut zonas — reconstruir desde state.lineas (solo SSE real)
+  const linKeys = Object.keys(state.lineas);
+  if (linKeys.length > 0) {
+    chartLinea.data.labels   = linKeys;
+    chartLinea.data.datasets[0].data            = Object.values(state.lineas);
+    chartLinea.data.datasets[0].backgroundColor = PALETTE_DONUT.slice(0, linKeys.length);
+    chartLinea.update('none');
+  }
 
-  // Donut composición
-  chartComposicion.data.labels = Object.keys(state.composicion);
-  chartComposicion.data.datasets[0].data = Object.values(state.composicion);
-  chartComposicion.update('none');
+  // ── Donut composición — reconstruir desde state.composicion (solo SSE real)
+  const compKeys = Object.keys(state.composicion);
+  if (compKeys.length > 0) {
+    chartComposicion.data.labels   = compKeys;
+    chartComposicion.data.datasets[0].data            = Object.values(state.composicion);
+    chartComposicion.data.datasets[0].backgroundColor = PALETTE_DONUT.slice(0).reverse().slice(0, compKeys.length);
+    chartComposicion.update('none');
+  }
 
-  // Trend — actualizar último mes
+  // ── Trend — actualizar último mes con acumulado SSE real
   const last = state.ingresos.length - 1;
-  chartTrend.data.datasets[0].data[last] =
-    (state.ingresos[last] * 1000 + state.ingresoActual) / 1000;
-  chartTrend.data.datasets[1].data[last] =
-    (state.gastos[last] * 1000 + state.gastoActual) / 1000;
-  chartTrend.data.datasets[2].data =
-    chartTrend.data.datasets[0].data.map((v,i) =>
-      v - chartTrend.data.datasets[1].data[i]);
+  state.ingresos[last] = state.ingresoActual;
+  state.gastos[last]   = state.gastoActual;
+  chartTrend.data.datasets[0].data = [...state.ingresos];
+  chartTrend.data.datasets[1].data = [...state.gastos];
+  chartTrend.data.datasets[2].data = state.ingresos.map((v,i) => v - state.gastos[i]);
   chartTrend.update('none');
 }
 
@@ -749,7 +743,7 @@ function clearLog() {
 // ══════════════════════════════════════════════════════════════════════════════
 // HELPERS
 // ══════════════════════════════════════════════════════════════════════════════
-function fmt(n)    { return (n/1000).toFixed(0)+'k' }
+function fmt(n)    { return n>=1000000?(n/1000000).toFixed(2)+'M':(n/1000).toFixed(1)+'k' }
 function fmtK(n)   { return Number(n).toLocaleString('es-PE', {minimumFractionDigits:2,maximumFractionDigits:2}) }
 function pct(v,t)  { return t>0?(v/t*100).toFixed(0):'0' }
 function set(id,v) { const el=document.getElementById(id); if(el) el.textContent=v }
@@ -768,25 +762,27 @@ function setTrendView(view, btn) {
   btn.classList.add('active');
   if (view === 'trimestral') {
     chartTrend.data.labels = ['Q1','Q2','Q3','Q4'];
-    chartTrend.data.datasets[0].data = [
+    const ing4 = [
       state.ingresos.slice(0,3).reduce((a,b)=>a+b,0),
       state.ingresos.slice(3,6).reduce((a,b)=>a+b,0),
       state.ingresos.slice(6,9).reduce((a,b)=>a+b,0),
       state.ingresos.slice(9,12).reduce((a,b)=>a+b,0),
     ];
-    chartTrend.data.datasets[1].data = [
+    const gst4 = [
       state.gastos.slice(0,3).reduce((a,b)=>a+b,0),
       state.gastos.slice(3,6).reduce((a,b)=>a+b,0),
       state.gastos.slice(6,9).reduce((a,b)=>a+b,0),
       state.gastos.slice(9,12).reduce((a,b)=>a+b,0),
     ];
+    chartTrend.data.datasets[0].data = ing4;
+    chartTrend.data.datasets[1].data = gst4;
+    chartTrend.data.datasets[2].data = ing4.map((v,i) => v - gst4[i]);
   } else {
     chartTrend.data.labels = state.meses;
     chartTrend.data.datasets[0].data = [...state.ingresos];
     chartTrend.data.datasets[1].data = [...state.gastos];
+    chartTrend.data.datasets[2].data = state.ingresos.map((v,i) => v - state.gastos[i]);
   }
-  chartTrend.data.datasets[2].data =
-    chartTrend.data.datasets[0].data.map((v,i) => v - chartTrend.data.datasets[1].data[i]);
   chartTrend.update();
 }
 
