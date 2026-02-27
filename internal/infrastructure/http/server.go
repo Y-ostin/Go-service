@@ -49,15 +49,32 @@ func NewServer(
 
 	mux := http.NewServeMux()
 
+	// ── CORS wrapper: permite acceso desde cualquier origen (dev local) ────
+	withCORS := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Cache-Control")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			h.ServeHTTP(w, r)
+		})
+	}
+
 	// ── Endpoints de streaming ─────────────────────────────────────────────
-	mux.Handle("/ws", loggingMiddleware(log, wsHandler))
-	mux.Handle("/events", loggingMiddleware(log, sseHandler))
+	mux.Handle("/ws", withCORS(loggingMiddleware(log, wsHandler)))
+	mux.Handle("/events", withCORS(loggingMiddleware(log, sseHandler)))
 
 	// ── Health check ──────────────────────────────────────────────────────
 	mux.HandleFunc("/health", s.handleHealth)
 
 	// ── Métricas Prometheus ───────────────────────────────────────────────
 	mux.Handle("/metrics", promhttp.Handler())
+
+	// ── Dashboard ejecutivo (HTML estático) ───────────────────────────────
+	mux.HandleFunc("/dashboard", s.handleDashboard)
+	mux.HandleFunc("/", s.handleRoot)
 
 	// ── Dashboard info ────────────────────────────────────────────────────
 	mux.HandleFunc("/info", s.handleInfo)
@@ -159,6 +176,22 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// handleDashboard sirve el archivo dashboard.html embebido en el binario.
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeFile(w, r, "/app/dashboard.html")
+}
+
+// handleRoot redirige la raíz al dashboard.
+func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/dashboard", http.StatusFound)
 }
 
 // loggingMiddleware registra cada request HTTP con método, path y duración.
