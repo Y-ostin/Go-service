@@ -25,6 +25,7 @@ import (
 	"github.com/ccip/go-service/internal/config"
 	"github.com/ccip/go-service/internal/domain"
 	binloginfra "github.com/ccip/go-service/internal/infrastructure/binlog"
+	dbinfra "github.com/ccip/go-service/internal/infrastructure/db"
 	httpinfra "github.com/ccip/go-service/internal/infrastructure/http"
 	"github.com/ccip/go-service/internal/infrastructure/sse"
 	wsinfra "github.com/ccip/go-service/internal/infrastructure/websocket"
@@ -62,43 +63,77 @@ func main() {
 		log.Fatal("error inicializando position store", zap.Error(err))
 	}
 
-	// ── 5. Inicializar Publishers (WebSocket Hub + SSE Broker) ─────────────
+	// ── 5. Inicializar Publishers base (WebSocket Hub + SSE Broker) ──────────
 	wsHub := wsinfra.NewHub(cfg.Server.MaxClients, m, log)
 	sseBroker := sse.NewBroker(cfg.Server.MaxClients, m, log)
 
-	// ── 6. Inicializar Event Dispatcher (worker pool + batcher) ───────────
-	// El dispatcher implementa domain.EventPublisher y recibe eventos del Listener.
-	// Internamente los distribuye al wsHub y sseBroker.
+	// ── 6. Inicializar conexión SQL + capa del dashboard ──────────────────────
+	// Debe ocurrir ANTES del dispatcher para que dashStreamBroker pueda ser
+	// añadido como publisher en el siguiente paso.
+	sqlDB, sqlErr := dbinfra.NewConnection(cfg.DB)
+	if sqlErr != nil {
+		log.Warn("no se pudo conectar a MariaDB para el dashboard; endpoints /dashboard/* no estarán disponibles",
+			zap.Error(sqlErr))
+	}
+
+	var dashHandler *httpinfra.DashboardHandler
+	var dashStreamBroker *sse.DashboardStreamBroker
+	if sqlDB != nil {
+		defer func() { _ = sqlDB.Close() }()
+		dashRepo := dbinfra.NewMySQLDashboardRepository(sqlDB, log)
+		dashSvc := application.NewDashboardService(dashRepo, log)
+		dashHandler = httpinfra.NewDashboardHandler(dashSvc, log)
+		dashStreamBroker = sse.NewDashboardStreamBroker(dashSvc, m, log, cfg.Server.MaxClients)
+		log.Info("dashboard financiero habilitado",
+			zap.String("db_host", cfg.DB.Host),
+			zap.String("db_name", cfg.DB.Name),
+		)
+	}
+
+	// ── 7. Inicializar Event Dispatcher (worker pool + batcher) ────────────────
+	// El dispatcher recibe eventos del binlog y los distribuye a todos los publishers.
+	// dashStreamBroker se incluye sólo si la BD SQL está disponible.
+	publishers := []domain.EventPublisher{wsHub, sseBroker}
+	if dashStreamBroker != nil {
+		publishers = append(publishers, dashStreamBroker)
+	}
 	dispatcher := application.NewEventDispatcher(
 		&cfg.Throttle,
-		[]domain.EventPublisher{wsHub, sseBroker},
+		publishers,
 		m,
 		log,
 	)
 
-	// ── 7. Inicializar Binlog Listener ─────────────────────────────────────
+	// ── 8. Inicializar Binlog Listener ──────────────────────────────────────
 	binlogListener := binloginfra.NewListener(cfg, posStore, dispatcher, m, log)
 
-	// ── 8. Inicializar servidor HTTP ───────────────────────────────────────
+	// ── 9. Inicializar servidor HTTP ──────────────────────────────────────────
 	httpServer := httpinfra.NewServer(
 		&cfg.Server,
 		wsHub,
 		sseBroker,
 		dispatcher,
+		dashHandler,
+		dashStreamBroker,
 		log,
 	)
 
-	// ── 9. Context con cancelación para shutdown graceful ──────────────────
+	// ── 10. Context con cancelación para shutdown graceful ───────────────────
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// ── 10. Iniciar goroutines del sistema ─────────────────────────────────
+	// ── 11. Iniciar goroutines del sistema ─────────────────────────────────
 
 	// WebSocket Hub loop (gestiona register/unregister de clientes WS)
 	go wsHub.Run()
 
 	// Dispatcher (worker pool + batcher)
 	go dispatcher.Run(ctx)
+
+	// Dashboard Stream Broker (debounce de señales + re-query BD + push SSE tipado)
+	if dashStreamBroker != nil {
+		go dashStreamBroker.Run(ctx)
+	}
 
 	// Binlog Listener con reconexión automática
 	go func() {
@@ -119,6 +154,8 @@ func main() {
 		zap.String("sse", "http://localhost:"+itoa(cfg.Server.Port)+"/events"),
 		zap.String("health", "http://localhost:"+itoa(cfg.Server.Port)+"/health"),
 		zap.String("metrics", "http://localhost:"+itoa(cfg.Server.Port)+"/metrics"),
+		zap.String("dashboard_rest", "http://localhost:"+itoa(cfg.Server.Port)+"/dashboard/<métrica>?anio=&mes="),
+		zap.String("dashboard_stream", "http://localhost:"+itoa(cfg.Server.Port)+"/dashboard/stream?anio=&mes="),
 	)
 
 	// ── 11. Esperar señal de shutdown (SIGTERM / SIGINT) ───────────────────

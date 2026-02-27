@@ -35,7 +35,8 @@ type ServerConfig struct {
 	MaxClients int `mapstructure:"SERVER_MAX_CLIENTS"`
 }
 
-// DBConfig contiene los parámetros de conexión a MariaDB para el replication.
+// DBConfig contiene los parámetros de conexión a MariaDB para el replication
+// y para las consultas SQL de la aplicación (dashboard).
 type DBConfig struct {
 	// Host del servidor MariaDB.
 	Host string `mapstructure:"DB_HOST"`
@@ -52,6 +53,32 @@ type DBConfig struct {
 	// ServerID debe ser ÚNICO en el cluster de replicación. Nunca usar el mismo
 	// que el server-id del MariaDB primario o de otros esclavos.
 	ServerID uint32 `mapstructure:"DB_SERVER_ID"`
+
+	// Name es el nombre del esquema/base de datos para las consultas del dashboard.
+	Name string `mapstructure:"DB_NAME"`
+
+	// QueryUser es el usuario MySQL para las consultas SQL del dashboard.
+	// Si está vacío se usa User (replication user).
+	QueryUser string `mapstructure:"DB_QUERY_USER"`
+
+	// QueryPassword es la contraseña de QueryUser.
+	// Si está vacío se usa Password.
+	QueryPassword string `mapstructure:"DB_QUERY_PASSWORD"`
+}
+
+// DSN construye el Data Source Name para database/sql (go-sql-driver/mysql).
+// Usa QueryUser/QueryPassword si están definidos; si no, recae en el usuario de replicación.
+func (c DBConfig) DSN() string {
+	user := c.QueryUser
+	if user == "" {
+		user = c.User
+	}
+	pass := c.QueryPassword
+	if pass == "" {
+		pass = c.Password
+	}
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC",
+		user, pass, c.Host, c.Port, c.Name)
 }
 
 // BinlogConfig define qué eventos procesar.
@@ -135,6 +162,9 @@ func Load() (*Config, error) {
 	v.SetDefault("DB_PORT", 3306)
 	v.SetDefault("DB_REPL_USER", "replicator")
 	v.SetDefault("DB_SERVER_ID", 100)
+	v.SetDefault("DB_NAME", "ccip_erp_legacy")
+	v.SetDefault("DB_QUERY_USER", "")
+	v.SetDefault("DB_QUERY_PASSWORD", "")
 	v.SetDefault("BINLOG_FLAVOR", "mariadb")
 	v.SetDefault("BINLOG_USE_GTID", false)
 	v.SetDefault("POSITION_STORAGE", "file")
@@ -155,11 +185,14 @@ func Load() (*Config, error) {
 	}
 
 	cfg.DB = DBConfig{
-		Host:     v.GetString("DB_HOST"),
-		Port:     uint16(v.GetInt("DB_PORT")),
-		User:     v.GetString("DB_REPL_USER"),
-		Password: v.GetString("DB_REPL_PASSWORD"),
-		ServerID: uint32(v.GetInt("DB_SERVER_ID")),
+		Host:          v.GetString("DB_HOST"),
+		Port:          uint16(v.GetInt("DB_PORT")),
+		User:          v.GetString("DB_REPL_USER"),
+		Password:      v.GetString("DB_REPL_PASSWORD"),
+		ServerID:      uint32(v.GetInt("DB_SERVER_ID")),
+		Name:          v.GetString("DB_NAME"),
+		QueryUser:     v.GetString("DB_QUERY_USER"),
+		QueryPassword: v.GetString("DB_QUERY_PASSWORD"),
 	}
 
 	cfg.Binlog = BinlogConfig{

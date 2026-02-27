@@ -57,6 +57,11 @@ services:
       # CRÍTICO: server-id único, diferente al server-id del MariaDB (que es 1)
       DB_SERVER_ID: "100"
 
+      # Dashboard: conexión SQL para las consultas REST y el stream SSE
+      DB_NAME: "ccip_erp_legacy"
+      DB_QUERY_USER: "appuser"
+      DB_QUERY_PASSWORD: "apppassword"
+
       # Binlog
       BINLOG_FLAVOR: "mariadb"
       BINLOG_USE_GTID: "false"
@@ -123,6 +128,23 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     networks:
       - ccip_net
+
+  # ── React Frontend Dashboard ──────────────────────────────────────────────────
+  react-dashboard:
+    build:
+      context: ../Dashboard-ccip
+      dockerfile: Dockerfile
+    container_name: ccip_react_dashboard
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../Dashboard-ccip:/app
+      - /app/node_modules # Protege los módulos internos del contenedor
+    networks:
+      - ccip_net
+    depends_on:
+      - go-binlog-service
 
 volumes:
   mariadb_data:

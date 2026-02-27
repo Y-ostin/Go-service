@@ -35,6 +35,8 @@ func NewServer(
 	wsHandler http.Handler,
 	sseHandler http.Handler,
 	dispatcher domain.EventPublisher,
+	dashHandler *DashboardHandler,
+	streamHandler http.Handler,
 	log *zap.Logger,
 ) *Server {
 	s := &Server{
@@ -60,15 +62,53 @@ func NewServer(
 	// ── Dashboard info ────────────────────────────────────────────────────
 	mux.HandleFunc("/info", s.handleInfo)
 
+	// ── Dashboard financiero ──────────────────────────────────────────────
+	// Todos los endpoints aceptan ?anio=AAAA&mes=M
+	if dashHandler != nil {
+		mux.Handle("/dashboard/ingresos", loggingMiddleware(log, http.HandlerFunc(dashHandler.HandleIngresos)))
+		mux.Handle("/dashboard/gastos", loggingMiddleware(log, http.HandlerFunc(dashHandler.HandleGastos)))
+		mux.Handle("/dashboard/resultado", loggingMiddleware(log, http.HandlerFunc(dashHandler.HandleResultado)))
+		mux.Handle("/dashboard/margen", loggingMiddleware(log, http.HandlerFunc(dashHandler.HandleMargen)))
+		mux.Handle("/dashboard/ingresos-cost-line", loggingMiddleware(log, http.HandlerFunc(dashHandler.HandleIngresosCostLine)))
+		mux.Handle("/dashboard/composicion-gastos", loggingMiddleware(log, http.HandlerFunc(dashHandler.HandleComposicionGastos)))
+		mux.Handle("/dashboard/punto-equilibrio", loggingMiddleware(log, http.HandlerFunc(dashHandler.HandlePuntoEquilibrio)))
+		mux.Handle("/dashboard/alerta-ejecutiva", loggingMiddleware(log, http.HandlerFunc(dashHandler.HandleAlertaEjecutiva)))
+		mux.Handle("/dashboard/top-riesgos", loggingMiddleware(log, http.HandlerFunc(dashHandler.HandleTopRiesgos)))
+		mux.Handle("/dashboard/ratio", loggingMiddleware(log, http.HandlerFunc(dashHandler.HandleRatio)))
+	}
+
+	// ── Dashboard stream (SSE canal único de cambios en tiempo real) ─────────────
+	// GET /dashboard/stream?anio=AAAA&mes=M
+	// Un evento SSE tipado por métrica afectada, sin polling, sin saturar el cliente.
+	if streamHandler != nil {
+		mux.Handle("/dashboard/stream", loggingMiddleware(log, streamHandler))
+	}
+
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      mux,
+		Handler:      corsMiddleware(mux),
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: 0, // 0 = sin timeout en escritura (necesario para SSE/WS)
 		IdleTimeout:  120 * time.Second,
 	}
 
 	return s
+}
+
+// corsMiddleware añade los headers CORS necesarios para que el frontend React pueda consumir la API.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Start inicia el servidor HTTP. Bloquea hasta error o cierre.

@@ -4,6 +4,7 @@ go 1.22
 
 require (
 	github.com/go-mysql-org/go-mysql v1.9.1
+	github.com/go-sql-driver/mysql v1.8.1
 	github.com/gorilla/websocket v1.5.1
 	github.com/prometheus/client_golang v1.19.1
 	github.com/shopspring/decimal v1.4.0
