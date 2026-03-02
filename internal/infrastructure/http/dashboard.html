@@ -6,6 +6,7 @@
   <title>CCIP — Dashboard Financiero</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <style>
     body { background:#0f1117; font-family:'Inter',system-ui,sans-serif; }
     .card { background:#1a1d2b; border:1px solid #252840; transition:border-color .3s; }
@@ -144,6 +145,39 @@
 
 </section>
 
+<!-- ── FILA 4: Gráficas pastel ────────────────────────────── -->
+<section class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+
+  <!-- Ingresos por línea de negocio -->
+  <div class="card rounded-2xl p-5">
+    <p class="text-xs text-slate-400 uppercase tracking-widest mb-3">Ingresos por línea de negocio</p>
+    <div class="flex flex-col md:flex-row items-center gap-4">
+      <div class="relative" style="width:220px;height:220px;flex-shrink:0">
+        <canvas id="chartIngresos"></canvas>
+        <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span id="chartIngresosCenter" class="text-xs text-slate-500 text-center leading-tight"></span>
+        </div>
+      </div>
+      <ul id="legendIngresos" class="flex-1 space-y-1 text-xs text-slate-300 w-full"></ul>
+    </div>
+  </div>
+
+  <!-- Composición de gastos -->
+  <div class="card rounded-2xl p-5">
+    <p class="text-xs text-slate-400 uppercase tracking-widest mb-3">Composición de gastos</p>
+    <div class="flex flex-col md:flex-row items-center gap-4">
+      <div class="relative" style="width:220px;height:220px;flex-shrink:0">
+        <canvas id="chartEgresos"></canvas>
+        <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span id="chartEgresosCenter" class="text-xs text-slate-500 text-center leading-tight"></span>
+        </div>
+      </div>
+      <ul id="legendEgresos" class="flex-1 space-y-1 text-xs text-slate-300 w-full"></ul>
+    </div>
+  </div>
+
+</section>
+
 <!-- ── FOOTER ──────────────────────────────────────────────── -->
 <footer class="text-xs text-slate-600 text-center mt-4">
   GO-SERVICE · <span id="footerPeriodo">—</span> · MQTT: ccip/dashboard
@@ -165,6 +199,12 @@ var MQTT_OPTS  = {
 
 var mqttCount   = 0;
 var currentYear = 0, currentMonth = 0;
+var chartIng = null, chartEg = null;
+
+var CHART_COLORS = [
+  '#6366f1','#10b981','#f59e0b','#f43f5e','#3b82f6','#a78bfa',
+  '#34d399','#fb923c','#e879f9','#22d3ee','#84cc16','#fbbf24'
+];
 
 // ── Inicialización ─────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', function() {
@@ -241,18 +281,23 @@ function onFilterChange() {
 function loadKPIs(year, month) {
   currentYear  = year;
   currentMonth = month;
-  var url;
+  var qs;
   if (year === 0) {
-    url = '/api/kpis?year=0';
+    qs = 'year=0';
   } else if (month === 0) {
-    url = '/api/kpis?year=' + year;
+    qs = 'year=' + year;
   } else {
-    url = '/api/kpis?year=' + year + '&month=' + month;
+    qs = 'year=' + year + '&month=' + month;
   }
-  fetch(url)
+  fetch('/api/kpis?' + qs)
     .then(function(r){ return r.json(); })
     .then(function(d){ renderKPIs(d); })
     .catch(function(e){ console.error('/api/kpis error:', e); });
+
+  fetch('/api/kpis/breakdown?' + qs)
+    .then(function(r){ return r.json(); })
+    .then(function(d){ renderCharts(d); })
+    .catch(function(e){ console.error('/api/kpis/breakdown error:', e); });
 }
 
 // ── Render ─────────────────────────────────────────────────────────────────
@@ -328,6 +373,94 @@ function renderKPIs(d) {
     el.classList.remove('flash');
     void el.offsetWidth;
     el.classList.add('flash');
+  });
+}
+
+// ── Gráficas pastel ────────────────────────────────────────────────────────
+function renderCharts(d) {
+  if (!d) return;
+  buildDonut('chartIngresos', 'chartIngresosCenter', 'legendIngresos',
+             d.ingresos || [], '#10b981');
+  buildDonut('chartEgresos',  'chartEgresosCenter',  'legendEgresos',
+             d.egresos  || [], '#f43f5e');
+}
+
+function buildDonut(canvasId, centerId, legendId, slices, accentColor) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  // Agrupar slices más allá del top 8 en "Otros"
+  var MAX_SLICES = 8;
+  var displaySlices = slices;
+  if (slices.length > MAX_SLICES) {
+    var top   = slices.slice(0, MAX_SLICES);
+    var rest  = slices.slice(MAX_SLICES);
+    var otrosVal = rest.reduce(function(a, s){ return a + s.value; }, 0);
+    if (otrosVal > 0) top = top.concat([{label: 'Otros (' + rest.length + ')', value: otrosVal}]);
+    displaySlices = top;
+  }
+
+  var labels = displaySlices.map(function(s){ return s.label; });
+  var values = displaySlices.map(function(s){ return s.value; });
+  var total  = slices.reduce(function(a, s){ return a + s.value; }, 0);
+
+  // Centro: total
+  var centerEl = document.getElementById(centerId);
+  if (centerEl) centerEl.textContent = total > 0 ? fmt(total) : 'Sin datos';
+
+  // Leyenda lateral
+  var legendEl = document.getElementById(legendId);
+  if (legendEl) {
+    legendEl.innerHTML = '';
+    displaySlices.forEach(function(s, i) {
+      var pct = total > 0 ? ((s.value / total) * 100).toFixed(1) : '0.0';
+      var li  = document.createElement('li');
+      li.className = 'flex items-center justify-between gap-2';
+      li.innerHTML =
+        '<span class="flex items-center gap-1.5">' +
+          '<span style="background:' + CHART_COLORS[i % CHART_COLORS.length] + ';width:8px;height:8px;border-radius:2px;display:inline-block"></span>' +
+          '<span class="truncate max-w-[140px]">' + s.label + '</span>' +
+        '</span>' +
+        '<span class="text-slate-400 whitespace-nowrap">' + pct + '% · ' + fmt(s.value) + '</span>';
+      legendEl.appendChild(li);
+    });
+    if (slices.length === 0) legendEl.innerHTML = '<li class="text-slate-500">Sin datos para este período</li>';
+  }
+
+  // Destruir y redibujar el chart
+  var existing = Chart.getChart(canvas);
+  if (existing) existing.destroy();
+
+  if (total === 0) return;
+
+  new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: values,
+        backgroundColor: CHART_COLORS.slice(0, labels.length),
+        borderColor: '#0f1117',
+        borderWidth: 2,
+        hoverOffset: 8
+      }]
+    },
+    options: {
+      responsive: false,
+      cutout: '65%',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              var val = ctx.parsed;
+              var pct = total > 0 ? ((val/total)*100).toFixed(1) : '0';
+              return ' ' + fmt(val) + ' (' + pct + '%)';
+            }
+          }
+        }
+      }
+    }
   });
 }
 

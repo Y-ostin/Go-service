@@ -7,6 +7,7 @@ package http
 
 import (
 "encoding/json"
+"fmt"
 "net/http"
 "strconv"
 "time"
@@ -151,6 +152,92 @@ zap.Float64("egresos", egresosActual),
 )
 
 _ = json.NewEncoder(w).Encode(payload)
+}
+
+// ServeBreakdownHTTP  GET /api/kpis/breakdown?year=YYYY&month=M
+// Devuelve composición de ingresos por cost_line y egresos por expense_type.
+func (h *KPIHandler) ServeBreakdownHTTP(w http.ResponseWriter, r *http.Request) {
+w.Header().Set("Content-Type", "application/json")
+
+yearStr  := r.URL.Query().Get("year")
+monthStr := r.URL.Query().Get("month")
+
+var year, month int
+if yearStr == "" {
+now := time.Now()
+year, month = now.Year(), int(now.Month())
+} else {
+year, _ = strconv.Atoi(yearStr)
+if monthStr != "" {
+if m, err := strconv.Atoi(monthStr); err == nil && m >= 1 && m <= 12 {
+month = m
+}
+}
+}
+
+type Slice struct {
+Label string  `json:"label"`
+Value float64 `json:"value"`
+}
+
+// ── Filtro de fecha reutilizable ───────────────────────────────────────────
+// Construye el fragmento WHERE + args según modo (total / anual / mensual)
+buildDateFilter := func(yearCol, monthCol string) (string, []interface{}) {
+switch {
+case year == 0:
+return fmt.Sprintf("YEAR(%s) >= 2020", yearCol), nil
+case month == 0:
+return fmt.Sprintf("YEAR(%s) = ?", yearCol), []interface{}{year}
+default:
+return fmt.Sprintf("YEAR(%s) = ? AND MONTH(%s) = ?", yearCol, monthCol), []interface{}{year, month}
+}
+}
+
+// ── Ingresos por cost_line ─────────────────────────────────────────────────
+// cicsa_charge_areas → cicsa_assignations → projects → cost_lines.name
+dateFieldI  := "COALESCE(ca.invoice_date, ca.created_at)"
+whereI, argsI := buildDateFilter(dateFieldI, dateFieldI)
+
+qIngByLine := fmt.Sprintf(`
+SELECT COALESCE(cl.name,'Sin asignar') AS label,
+       IFNULL(SUM(ca.amount),0)        AS value
+  FROM cicsa_charge_areas ca
+  LEFT JOIN cicsa_assignations ass ON ass.id = ca.cicsa_assignation_id
+  LEFT JOIN projects p              ON p.id  = ass.project_id
+  LEFT JOIN cost_lines cl           ON cl.id = p.cost_line_id
+ WHERE %s
+ GROUP BY cl.name
+ ORDER BY value DESC
+`, whereI)
+
+var ingresos []Slice
+if err := h.db.Raw(qIngByLine, argsI...).Scan(&ingresos).Error; err != nil {
+h.log.Warn("breakdown ingresos error", zap.Error(err))
+}
+
+// ── Egresos por expense_type ───────────────────────────────────────────────
+dateFieldE  := "COALESCE(operation_date, created_at)"
+whereE, argsE := buildDateFilter(dateFieldE, dateFieldE)
+
+qEgByType := fmt.Sprintf(`
+SELECT COALESCE(NULLIF(TRIM(expense_type),''),'Sin tipo') AS label,
+       IFNULL(SUM(CAST(amount AS DECIMAL(15,2))),0)        AS value
+  FROM general_expenses
+ WHERE workflow_status = 'done'
+   AND %s
+ GROUP BY label
+ ORDER BY value DESC
+`, whereE)
+
+var egresos []Slice
+if err := h.db.Raw(qEgByType, argsE...).Scan(&egresos).Error; err != nil {
+h.log.Warn("breakdown egresos error", zap.Error(err))
+}
+
+_ = json.NewEncoder(w).Encode(map[string]interface{}{
+"ingresos": ingresos,
+"egresos":  egresos,
+})
 }
 
 // ServePeriodsHTTP  GET /api/kpis/periods

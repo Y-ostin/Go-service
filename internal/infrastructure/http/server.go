@@ -74,7 +74,8 @@ mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 // ── API KPIs financieros (GORM) ───────────────────────────────────────
 	kpiHandler := NewKPIHandler(s.gormDB, log)
 	mux.Handle("/api/kpis", withCORS(kpiHandler))
-	mux.Handle("/api/kpis/periods", withCORS(http.HandlerFunc(kpiHandler.ServePeriodsHTTP)))
+	mux.Handle("/api/kpis/periods",   withCORS(http.HandlerFunc(kpiHandler.ServePeriodsHTTP)))
+	mux.Handle("/api/kpis/breakdown", withCORS(http.HandlerFunc(kpiHandler.ServeBreakdownHTTP)))
 
 s.httpServer = &http.Server{
 Addr:         fmt.Sprintf(":%d", cfg.Port),
