@@ -8,10 +8,17 @@ RUN apk add --no-cache git ca-certificates tzdata
 
 WORKDIR /app
 
-# Copiar todo el código fuente primero
+# Copiar go.mod primero y resolver dependencias (incluye GORM)
+COPY go.mod ./
+
+# Descargar y actualizar go.sum para todas las dependencias (incluye gorm.io/*)
+RUN go get gorm.io/gorm@v1.25.10 && \
+    go get gorm.io/driver/mysql@v1.5.6
+
+# Copiar el resto del código fuente
 COPY . .
 
-# go mod tidy necesita el código fuente para generar go.sum completo
+# Sincronizar go.sum con las dependencias reales del código
 RUN go mod tidy
 
 # Compilar con optimizaciones para producción:
@@ -37,9 +44,10 @@ RUN apk add --no-cache ca-certificates tzdata && \
 
 WORKDIR /app
 
-# Copiar el binario compilado y el dashboard estático
+# Copiar el binario compilado, el dashboard estático y el CA cert de EMQX
 COPY --from=builder /app/go-binlog-service .
 COPY --from=builder /app/dashboard.html .
+COPY --from=builder /app/emqxsl-ca.crt .
 
 # Directorio para persistir la posición del binlog
 RUN mkdir -p /data && chown appuser:appgroup /data

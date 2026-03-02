@@ -1,798 +1,354 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8"/>
-  <title>Dashboard Ejecutivo — Resultados Financieros</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CCIP Dashboard Financiero Ejecutivo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
   <style>
-    :root {
-      --bg:       #0f172a;
-      --surface:  #1e293b;
-      --border:   #334155;
-      --text:     #e2e8f0;
-      --muted:    #64748b;
-      --blue:     #38bdf8;
-      --green:    #22c55e;
-      --red:      #ef4444;
-      --yellow:   #f59e0b;
-      --purple:   #a78bfa;
-    }
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-
-    /* ── HEADER ── */
-    .header{
-      display:flex;align-items:center;justify-content:space-between;
-      padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);
-      flex-wrap:wrap;gap:8px;
-    }
-    .header-left{display:flex;align-items:center;gap:12px}
-    .logo-btn{
-      background:var(--border);border:none;color:var(--muted);padding:6px 12px;
-      border-radius:6px;cursor:pointer;font-size:0.78rem;
-    }
-    .header h1{font-size:1rem;font-weight:600;color:var(--text)}
-    .data-badge{
-      background:#1d4ed8;color:#93c5fd;padding:6px 14px;
-      border-radius:6px;font-size:0.75rem;font-weight:600;
-    }
-    .header-right{display:flex;align-items:center;gap:10px}
-    .sse-dot{width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0}
-    .sse-dot.on{background:var(--green);animation:blink 1.5s infinite}
-    @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
-    .sse-label{font-size:0.72rem;color:var(--muted)}
-    .filter-group{display:flex;gap:6px;align-items:center}
-    .filter-group label{font-size:0.75rem;color:var(--muted)}
-    .filter-group select{
-      background:var(--surface);border:1px solid var(--border);color:var(--text);
-      padding:4px 8px;border-radius:6px;font-size:0.75rem;cursor:pointer;
-    }
-
-    /* ── LAYOUT ── */
-    .main{padding:16px;display:flex;flex-direction:column;gap:14px}
-
-    /* ── KPI ROW ── */
-    .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-    .kpi-card{
-      background:var(--surface);border-radius:10px;padding:14px 16px;
-      border:1px solid var(--border);
-    }
-    .kpi-title{font-size:0.7rem;color:var(--blue);font-weight:600;text-align:center;margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em}
-    .kpi-values{display:flex;align-items:flex-end;justify-content:space-around;gap:8px}
-    .kpi-main{text-align:center}
-    .kpi-main .val{font-size:1.5rem;font-weight:700;color:var(--text)}
-    .kpi-main .lbl{font-size:0.65rem;color:var(--muted);margin-top:2px}
-    .kpi-badge{
-      font-size:0.8rem;font-weight:700;padding:4px 10px;border-radius:6px;
-      min-width:70px;text-align:center;
-    }
-    .badge-green{background:#14532d;color:var(--green)}
-    .badge-red{background:#450a0a;color:var(--red)}
-    .badge-yellow{background:#451a03;color:var(--yellow)}
-
-    /* ── CHARTS ROW MIDDLE ── */
-    .charts-row{display:grid;grid-template-columns:280px 1fr 260px;gap:12px;align-items:start}
-    .chart-card{
-      background:var(--surface);border-radius:10px;padding:14px 16px;
-      border:1px solid var(--border);
-    }
-    .chart-title{font-size:0.75rem;color:var(--blue);font-weight:600;margin-bottom:12px}
-    .chart-canvas-wrap{position:relative}
-    .trend-controls{display:flex;gap:6px;align-items:center;justify-content:flex-end;margin-bottom:6px;flex-wrap:wrap}
-    .trend-controls button{
-      background:var(--border);border:1px solid transparent;color:var(--muted);
-      padding:3px 10px;border-radius:5px;cursor:pointer;font-size:0.72rem;
-    }
-    .trend-controls button.active{border-color:var(--blue);color:var(--blue)}
-
-    /* ── BOTTOM ROW ── */
-    .bottom-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px}
-    .small-kpi{
-      background:var(--surface);border-radius:10px;padding:14px 16px;
-      border:1px solid var(--border);text-align:center;
-    }
-    .small-kpi .s-title{font-size:0.7rem;color:var(--blue);font-weight:600;margin-bottom:8px;text-transform:uppercase}
-    .small-kpi .s-val{font-size:1.4rem;font-weight:700;color:var(--text)}
-    .small-kpi .s-sub{font-size:0.65rem;color:var(--muted);margin-top:4px}
-
-    /* ── TOP RISK ── */
-    .risk-card{background:var(--surface);border-radius:10px;padding:14px 16px;border:1px solid var(--border)}
-    .risk-title{font-size:0.7rem;color:var(--blue);font-weight:600;text-align:center;margin-bottom:10px;text-transform:uppercase}
-    .risk-row{display:flex;align-items:center;justify-content:space-around;gap:8px}
-
-    /* ── ALERT CARD ── */
-    .alert-card{
-      background:var(--surface);border-radius:10px;padding:14px 16px;
-      border:1px solid var(--border);text-align:center;
-    }
-    .alert-title{font-size:0.7rem;color:var(--blue);font-weight:600;text-transform:uppercase;margin-bottom:6px}
-    .alert-val{font-size:1.4rem;font-weight:700;color:var(--yellow)}
-    .alert-sub{font-size:0.65rem;color:var(--muted);margin-top:4px}
-
-    /* ── EVENTS LOG ── */
-    .log-card{
-      background:var(--surface);border-radius:10px;padding:14px 16px;
-      border:1px solid var(--border);margin-top:2px;
-    }
-    .log-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-    .log-header span{font-size:0.75rem;color:var(--blue);font-weight:600}
-    .log-header button{
-      background:var(--border);border:none;color:var(--muted);
-      padding:3px 10px;border-radius:5px;cursor:pointer;font-size:0.72rem;
-    }
-    .log-list{display:flex;flex-direction:column;gap:4px;max-height:140px;overflow-y:auto}
-    .log-list::-webkit-scrollbar{width:3px}
-    .log-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
-    .log-item{
-      display:flex;align-items:center;gap:8px;padding:5px 8px;
-      background:var(--bg);border-radius:6px;font-size:0.72rem;
-      animation:fadeIn .2s ease;
-    }
-    @keyframes fadeIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
-    .log-badge{font-size:0.6rem;font-weight:700;padding:2px 6px;border-radius:3px;min-width:46px;text-align:center}
-    .log-badge.INSERT{background:#14532d;color:var(--green)}
-    .log-badge.UPDATE{background:#451a03;color:var(--yellow)}
-    .log-badge.DELETE{background:#450a0a;color:var(--red)}
-    .log-concept{color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .log-amount{color:var(--green);font-weight:600;min-width:80px;text-align:right}
-    .log-time{color:var(--muted);min-width:55px;text-align:right}
-
-    .no-data{color:var(--muted);font-size:0.75rem;text-align:center;padding:16px}
-
-    /* ── SPARKLINE INLINE ── */
-    .spark-wrap{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:6px}
-    .spark-prev{font-size:0.65rem;color:var(--muted)}
+    body { background:#12131a; font-family:'Inter',system-ui,sans-serif; }
+    .kpi-card { background:#1c1e2b; border:1px solid #2a2d3e; }
+    .fade-in { animation:fadeIn .4s ease; }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+    .flash { animation:flash .8s ease; }
+    @keyframes flash { 0%,100%{background:#1c1e2b} 50%{background:#1e3a5f} }
+    select,input { background:#12131a; border:1px solid #2a2d3e; color:#e2e8f0; }
+    select:focus,input:focus { outline:none; border-color:#3b82f6; }
+    ::-webkit-scrollbar { width:4px; }
+    ::-webkit-scrollbar-thumb { background:#2a2d3e; border-radius:2px; }
+    .dot-pulse { animation:dpulse 1.5s infinite; }
+    @keyframes dpulse { 0%,100%{opacity:1} 50%{opacity:.3} }
   </style>
 </head>
-<body>
+<body class="min-h-screen text-slate-200 p-4">
 
 <!-- HEADER -->
-<div class="header">
-  <div class="header-left">
-    <button class="logo-btn">⬆ Upload Logo</button>
-    <h1>Dashboard Ejecutivo — Resultados Financieros Mensuales</h1>
+<header class="flex flex-wrap items-center justify-between gap-4 mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-white tracking-tight">CCIP Dashboard Financiero</h1>
+    <p class="text-sm text-slate-400 mt-0.5">Metricas ejecutivas en tiempo real via MQTT</p>
   </div>
-  <div class="data-badge">
-    Data Last Updated on | <span id="last-update">—</span>
-  </div>
-  <div class="header-right">
-    <div class="filter-group">
-      <label>Mes</label>
-      <select id="filter-mes" onchange="applyFilters()">
-        <option value="All">All</option>
-        <option>Ene</option><option>Feb</option><option>Mar</option>
-        <option>Abr</option><option>May</option><option>Jun</option>
-        <option>Jul</option><option>Ago</option><option>Sep</option>
-        <option>Oct</option><option>Nov</option><option>Dic</option>
-      </select>
+  <div class="flex items-center gap-3 flex-wrap">
+    <select id="selMonth" class="rounded-lg px-3 py-2 text-sm">
+      <option value="1">Enero</option><option value="2">Febrero</option>
+      <option value="3">Marzo</option><option value="4">Abril</option>
+      <option value="5">Mayo</option><option value="6">Junio</option>
+      <option value="7">Julio</option><option value="8">Agosto</option>
+      <option value="9">Septiembre</option><option value="10">Octubre</option>
+      <option value="11">Noviembre</option><option value="12">Diciembre</option>
+    </select>
+    <input id="inpYear" type="number" min="2020" max="2099" class="rounded-lg px-3 py-2 text-sm w-24" />
+    <button onclick="loadKPIs()"
+      class="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition">
+      Actualizar
+    </button>
+    <div class="flex items-center gap-1.5 text-xs">
+      <span id="mqttDot" class="w-2 h-2 rounded-full bg-amber-400 inline-block dot-pulse"></span>
+      <span id="mqttLabel" class="text-amber-400 text-xs">Conectando MQTT...</span>
     </div>
-    <div class="filter-group">
-      <label>Año</label>
-      <select id="filter-anio" onchange="applyFilters()">
-        <option value="All">All</option>
-        <option>2024</option><option>2025</option><option>2026</option>
-      </select>
-    </div>
-    <div class="sse-dot" id="dot"></div>
-    <span class="sse-label" id="sse-status">Conectando…</span>
   </div>
-</div>
+</header>
 
-<!-- MAIN -->
-<div class="main">
+<!-- FILA 1: 4 KPI CARDS -->
+<section class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+  <div class="kpi-card rounded-2xl p-5 fade-in" id="cardIngresos">
+    <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Ingresos</p>
+    <p class="text-2xl font-bold text-emerald-400" id="valIngresos">cargando...</p>
+    <p class="text-xs text-slate-500 mt-1">cicsa_charge_areas</p>
+  </div>
+  <div class="kpi-card rounded-2xl p-5 fade-in" id="cardGastos">
+    <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Gastos</p>
+    <p class="text-2xl font-bold text-rose-400" id="valGastos">cargando...</p>
+    <p class="text-xs text-slate-500 mt-1">gen. expenses + approvals</p>
+  </div>
+  <div class="kpi-card rounded-2xl p-5 fade-in" id="cardResultado">
+    <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Resultado</p>
+    <p class="text-2xl font-bold text-slate-300" id="valResultado">cargando...</p>
+    <p class="text-xs text-slate-500 mt-1" id="lblResultado">Ingresos menos Gastos</p>
+  </div>
+  <div class="kpi-card rounded-2xl p-5 fade-in" id="cardMargen">
+    <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Margen %</p>
+    <p class="text-2xl font-bold text-slate-300" id="valMargen">cargando...</p>
+    <div class="mt-2 bg-slate-700 rounded-full h-1.5">
+      <div id="margenBar" class="h-1.5 rounded-full bg-blue-500 transition-all duration-700" style="width:0%"></div>
+    </div>
+  </div>
+</section>
 
-  <!-- KPI ROW -->
-  <div class="kpi-row">
-    <!-- Ingresos -->
-    <div class="kpi-card">
-      <div class="kpi-title">Ingresos mensuales (SOLES) ←API</div>
-      <div class="kpi-values">
-        <div class="kpi-main">
-          <div class="val" id="kpi-ingreso-actual">0.00</div>
-          <div class="lbl">Mes actual (S./)</div>
-        </div>
-        <div class="kpi-main">
-          <div class="val" id="kpi-ingreso-meta">0.00</div>
-          <div class="lbl">Meta (S./)</div>
-        </div>
-        <div class="kpi-badge badge-green" id="kpi-ingreso-var">—</div>
-      </div>
+<!-- FILA 2: DONUTS -->
+<section class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+  <div class="kpi-card rounded-2xl p-5 fade-in">
+    <h2 class="text-sm font-semibold text-slate-300 mb-3">Ingresos por Cost Line</h2>
+    <div class="flex items-center gap-4">
+      <div class="relative w-44 h-44 flex-shrink-0"><canvas id="donutIngresos"></canvas></div>
+      <div id="legendIngresos" class="flex flex-col gap-1.5 text-xs overflow-auto max-h-44"></div>
     </div>
-    <!-- Gastos -->
-    <div class="kpi-card">
-      <div class="kpi-title">Gastos mensuales (SOLES)</div>
-      <div class="kpi-values">
-        <div class="kpi-main">
-          <div class="val" id="kpi-gasto-actual">0.00</div>
-          <div class="lbl">Mes Actual (S./)</div>
-        </div>
-        <div class="kpi-main">
-          <div class="val" id="kpi-gasto-meta">0.00</div>
-          <div class="lbl">Meta (S./)</div>
-        </div>
-        <div class="kpi-badge badge-red" id="kpi-gasto-var">—</div>
-      </div>
+  </div>
+  <div class="kpi-card rounded-2xl p-5 fade-in">
+    <h2 class="text-sm font-semibold text-slate-300 mb-3">Composicion de Gastos</h2>
+    <div class="flex items-center gap-4">
+      <div class="relative w-44 h-44 flex-shrink-0"><canvas id="donutGastos"></canvas></div>
+      <div id="legendGastos" class="flex flex-col gap-1.5 text-xs overflow-auto max-h-44"></div>
     </div>
-    <!-- Resultado -->
-    <div class="kpi-card">
-      <div class="kpi-title">Resultado (SOLES)</div>
-      <div class="kpi-values">
-        <div class="kpi-main">
-          <div class="val" id="kpi-resultado-actual">0.00</div>
-          <div class="lbl">Mes Actual (S./)</div>
-        </div>
-        <div class="kpi-main">
-          <div class="val" id="kpi-resultado-meta">0.00</div>
-          <div class="lbl">Meta (S./)</div>
-        </div>
-        <div class="kpi-badge badge-green" id="kpi-resultado-var">—</div>
-      </div>
-    </div>
-    <!-- Margen -->
-    <div class="kpi-card">
-      <div class="kpi-title">Margen (%)</div>
-      <div class="kpi-values">
-        <div class="kpi-main">
-          <div class="val" id="kpi-margen-actual">0.0</div>
-          <div class="lbl">Mes Actual (%)</div>
-        </div>
-        <div class="kpi-main">
-          <div class="val" id="kpi-margen-meta">0.0</div>
-          <div class="lbl">Meta (%)</div>
-        </div>
-        <div class="kpi-badge badge-green" id="kpi-margen-var">—</div>
+  </div>
+</section>
+
+<!-- FILA 3: EQUILIBRIO + ALERTA + TOP3 + RATIO -->
+<section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+  <div class="kpi-card rounded-2xl p-5 fade-in">
+    <h2 class="text-sm font-semibold text-slate-300 mb-2">Punto de Equilibrio</h2>
+    <p class="text-xl font-bold text-slate-300" id="valEquilibrio">cargando...</p>
+    <p class="text-xs text-slate-500 mt-1">Ingresos minus Gastos directos</p>
+    <div class="mt-3">
+      <div class="flex justify-between text-xs text-slate-500 mb-1"><span>Gastos</span><span>Ingresos</span></div>
+      <div class="bg-slate-700 rounded-full h-2 overflow-hidden">
+        <div id="equilibrioBar" class="h-2 rounded-full bg-blue-500 transition-all duration-700" style="width:50%"></div>
       </div>
     </div>
   </div>
-
-  <!-- CHARTS MIDDLE ROW -->
-  <div class="charts-row">
-
-    <!-- Gastos por línea de negocio -->
-    <div class="chart-card">
-      <div class="chart-title">Gastos por línea de negocio (Zona)</div>
-      <div class="chart-canvas-wrap">
-        <canvas id="chart-linea" height="220"></canvas>
-      </div>
-    </div>
-
-    <!-- Tendencia -->
-    <div class="chart-card">
-      <div class="chart-title" style="display:flex;align-items:center;justify-content:space-between">
-        <span>Tendencia ingresos gastos y resultados</span>
-        <div class="trend-controls">
-          <button class="active" onclick="setTrendView('mensual',this)">Mensual</button>
-          <button onclick="setTrendView('trimestral',this)">Trimestral</button>
-        </div>
-      </div>
-      <canvas id="chart-trend" height="200"></canvas>
-    </div>
-
-    <!-- Composición de gastos -->
-    <div class="chart-card">
-      <div class="chart-title">Composición de gastos (Tipo)</div>
-      <div class="chart-canvas-wrap">
-        <canvas id="chart-composicion" height="220"></canvas>
-      </div>
-    </div>
+  <div class="kpi-card rounded-2xl p-5 fade-in border-l-4 border-amber-500">
+    <h2 class="text-sm font-semibold text-amber-400 mb-2">Alerta Ejecutiva</h2>
+    <p class="text-base font-bold text-white" id="alertaNombre"></p>
+    <p class="text-2xl font-bold text-amber-400 mt-1" id="alertaPct"></p>
+    <p class="text-xs text-slate-500 mt-1">Cost line con mayor % de ingresos</p>
   </div>
-
-  <!-- BOTTOM ROW -->
-  <div class="bottom-row">
-
-    <!-- Punto de equilibrio -->
-    <div class="small-kpi">
-      <div class="s-title">Punto de Equilibrio</div>
-      <div class="s-val" id="pe-val">0.00</div>
-      <div class="s-sub spark-wrap">
-        <span class="spark-prev" id="pe-prev">Mes previo (S./) 0.00</span>
-        <span class="kpi-badge badge-green" id="pe-var" style="font-size:.62rem;padding:2px 6px">—</span>
-      </div>
-    </div>
-
-    <!-- Alerta ejecutiva -->
-    <div class="alert-card">
-      <div class="alert-title">Alerta ejecutiva del mes</div>
-      <div class="alert-val" id="alerta-val">—</div>
-      <div class="alert-sub" id="alerta-desc">Sin alertas activas</div>
-    </div>
-
-    <!-- Top 3 riesgo -->
-    <div class="risk-card">
-      <div class="risk-title">Top 3 riesgo del mes</div>
-      <div class="risk-row">
-        <div class="kpi-main">
-          <div class="val" id="risk-val1" style="font-size:1.1rem">0</div>
-          <div class="lbl" id="risk-lbl1">—</div>
-        </div>
-        <div class="kpi-main">
-          <div class="val" id="risk-val2" style="font-size:1.1rem">0</div>
-          <div class="lbl" id="risk-lbl2">—</div>
-        </div>
-        <div class="kpi-badge badge-green" id="risk-var">—</div>
-      </div>
-    </div>
-
-    <!-- Ratio Gasto/Ingreso -->
-    <div class="small-kpi">
-      <div class="s-title">Ratio Gasto / Ingreso (%)</div>
-      <div class="s-val" id="ratio-val">0.0</div>
-      <div class="s-sub spark-wrap">
-        <span class="spark-prev" id="ratio-prev">Mes previo 0.0%</span>
-        <span class="kpi-badge badge-green" id="ratio-var" style="font-size:.62rem;padding:2px 6px">—</span>
-      </div>
-    </div>
+  <div class="kpi-card rounded-2xl p-5 fade-in">
+    <h2 class="text-sm font-semibold text-slate-300 mb-3">Top 3 Riesgo (vs mes ant.)</h2>
+    <div id="top3Container" class="flex flex-col gap-2"></div>
   </div>
-
-  <!-- EVENTS LOG -->
-  <div class="log-card">
-    <div class="log-header">
-      <span>⚡ Eventos binlog en tiempo real — general_expenses</span>
-      <button onclick="clearLog()">Limpiar log</button>
+  <div class="kpi-card rounded-2xl p-5 fade-in">
+    <h2 class="text-sm font-semibold text-slate-300 mb-2">Ratio Gasto / Ingreso</h2>
+    <p class="text-3xl font-bold text-slate-300" id="valRatio"></p>
+    <p class="text-xs text-slate-500 mt-1">% ideal menos de 80%</p>
+    <div class="mt-3 bg-slate-700 rounded-full h-2 overflow-hidden">
+      <div id="ratioBar" class="h-2 rounded-full bg-blue-500 transition-all duration-700" style="width:0%"></div>
     </div>
-    <div class="log-list" id="log-list">
-      <div class="no-data" id="log-empty">Esperando transacciones en la base de datos…</div>
-    </div>
+    <p id="ratioLabel" class="text-xs mt-1 text-slate-400"></p>
   </div>
+</section>
 
-</div><!-- /main -->
+<!-- FOOTER -->
+<footer class="text-xs text-slate-600 text-center mt-2">
+  Ultima actualizacion: <span id="lastUpdate">--</span>
+  &nbsp;|&nbsp; Mensajes MQTT recibidos: <span id="mqttCount">0</span>
+</footer>
 
 <script>
-// ══════════════════════════════════════════════════════════════════════════════
-// ESTADO GLOBAL
-// ══════════════════════════════════════════════════════════════════════════════
-const SSE_URL = 'http://localhost:8090/events';
-const TARGET_TABLES = ['general_expenses'];
-
-// Estado global — KPIs se alimentan 100% desde SSE (parten en 0)
-// El gráfico de tendencia usa histórico real (valores en S/)
-let state = {
-  // ── Acumuladores SSE del mes actual (parten en 0, crecen con cada evento) ──
-  ingresoActual: 0,
-  gastoActual:   0,
-
-  // ── Histórico meses anteriores (solo para trend chart) ──
-  // Último elemento = mes actual, inicia en 0 y se actualiza con SSE
-  meses:    ['Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic','Ene','Feb*'],
-  ingresos: [320000,290000,315000,340000,298000,365000,410000,388000,420000,445000,390000, 0],
-  gastos:   [240000,215000,230000,258000,220000,275000,305000,291000,318000,332000,295000, 0],
-
-  // ── Donuts: vacíos al inicio, se llenan exclusivamente desde SSE ──
-  lineas:      {},   // zone → acumulado S/
-  composicion: {},   // tipo → acumulado S/
-
-  // ── Presupuesto del mes (meta referencial) ──
-  metaIngreso: 450000,    // S/ 450,000
-  metaGasto:   330000,    // S/ 330,000
-
-  // ── Mes previo para calcular variación ──
-  prevIngreso: 390000,
-  prevGasto:   295000,
+var MQTT_URL   = 'wss://s9a612f1.ala.eu-central-1.emqxsl.com:8084/mqtt';
+var MQTT_TOPIC = 'ccip/dashboard';
+var MQTT_OPTS  = {
+  clientId         : 'ccip-dash-' + Math.random().toString(36).substr(2,8),
+  username         : 'ccip-admin',
+  password         : '12345678',
+  clean            : true,
+  reconnectPeriod  : 5000,
+  connectTimeout   : 30000,
+  keepalive        : 60,
+  rejectUnauthorized: false
 };
 
-// ══════════════════════════════════════════════════════════════════════════════
-// CHARTS SETUP
-// ══════════════════════════════════════════════════════════════════════════════
-const PALETTE_DONUT = [
-  '#38bdf8','#22c55e','#f59e0b','#a78bfa','#f472b6','#fb923c','#34d399','#60a5fa'
+var mqttMsgCount = 0;
+var chartI = null, chartG = null;
+var PALETTE = [
+  '#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6',
+  '#06b6d4','#f97316','#ec4899','#84cc16','#6366f1',
+  '#14b8a6','#f43f5e','#a78bfa','#fb923c','#22d3ee'
 ];
 
-const chartLinea = new Chart(document.getElementById('chart-linea'), {
-  type: 'doughnut',
-  data: {
-    labels: Object.keys(state.lineas),
-    datasets: [{
-      data: Object.values(state.lineas),
-      backgroundColor: PALETTE_DONUT,
-      borderWidth: 0,
-      hoverOffset: 8,
-    }]
-  },
-  options: {
-    cutout: '65%',
-    plugins: {
-      legend: {
-        position: 'right',
-        labels: {
-          color: '#94a3b8', font: { size: 9 },
-          generateLabels: (chart) => chart.data.labels.map((lbl, i) => ({
-            text: `${lbl}\n${fmt(chart.data.datasets[0].data[i])} (${pct(chart.data.datasets[0].data[i], Object.values(state.lineas).reduce((a,b)=>a+b,0))}%)`,
-            fillStyle: PALETTE_DONUT[i],
-            strokeStyle: 'transparent',
-            index: i,
-          }))
-        }
-      },
-      tooltip: {
-        callbacks: {
-          label: ctx => {
-            const total = ctx.dataset.data.reduce((a,b)=>a+b,0);
-            return ` ${ctx.label}: S./ ${fmtK(ctx.raw)} (${pct(ctx.raw, total)}%)`;
-          }
-        }
-      }
-    }
-  }
+window.addEventListener('DOMContentLoaded', function() {
+  var now = new Date();
+  document.getElementById('selMonth').value = String(now.getMonth() + 1);
+  document.getElementById('inpYear').value  = String(now.getFullYear());
+  loadKPIs();
+  initMQTT();
 });
 
-const chartComposicion = new Chart(document.getElementById('chart-composicion'), {
-  type: 'doughnut',
-  data: {
-    labels: Object.keys(state.composicion),
-    datasets: [{
-      data: Object.values(state.composicion),
-      backgroundColor: PALETTE_DONUT.slice(0).reverse(),
-      borderWidth: 0,
-      hoverOffset: 8,
-    }]
-  },
-  options: {
-    cutout: '65%',
-    plugins: {
-      legend: {
-        position: 'right',
-        labels: {
-          color: '#94a3b8', font: { size: 9 },
-          generateLabels: (chart) => chart.data.labels.map((lbl, i) => ({
-            text: `${lbl}\n${fmt(chart.data.datasets[0].data[i])} (${pct(chart.data.datasets[0].data[i], Object.values(state.composicion).reduce((a,b)=>a+b,0))}%)`,
-            fillStyle: PALETTE_DONUT.slice(0).reverse()[i],
-            strokeStyle: 'transparent',
-            index: i,
-          }))
-        }
-      }
-    }
-  }
-});
-
-const fmtAxis = v => v >= 1000000 ? (v/1000000).toFixed(1)+'M' : (v/1000).toFixed(0)+'k';
-
-const chartTrend = new Chart(document.getElementById('chart-trend'), {
-  type: 'bar',
-  data: {
-    labels: state.meses,
-    datasets: [
-      {
-        label: 'Ingresos (S/)',
-        data: [...state.ingresos],
-        backgroundColor: 'rgba(99, 102, 241, 0.7)',
-        borderRadius: 3,
-        order: 2,
-      },
-      {
-        label: 'Gastos (S/)',
-        data: [...state.gastos],
-        backgroundColor: 'rgba(139, 92, 246, 0.6)',
-        borderRadius: 3,
-        order: 2,
-      },
-      {
-        label: 'Resultado (S/)',
-        data: state.ingresos.map((v,i) => v - state.gastos[i]),
-        type: 'line',
-        borderColor: '#f97316',
-        backgroundColor: 'transparent',
-        borderWidth: 2,
-        pointRadius: 3,
-        pointBackgroundColor: '#f97316',
-        tension: 0.4,
-        order: 1,
-        yAxisID: 'y2',
-      }
-    ]
-  },
-  options: {
-    responsive: true,
-    plugins: { legend: { labels: { color: '#94a3b8', font: { size: 10 } } } },
-    scales: {
-      x: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: '#1e293b' } },
-      y: {
-        ticks: { color: '#64748b', font: { size: 9 }, callback: fmtAxis },
-        grid: { color: '#1e293b' }
-      },
-      y2: {
-        position: 'right',
-        ticks: { color: '#64748b', font: { size: 9 }, callback: fmtAxis },
-        grid: { drawOnChartArea: false }
-      }
-    }
-  }
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
-// KPI RENDER
-// ══════════════════════════════════════════════════════════════════════════════
-function renderKPIs() {
-  // ── Valores 100% desde SSE — arrancan en 0 y crecen con cada INSERT/UPDATE/DELETE
-  const ing   = state.ingresoActual;          // S/ acumulado ingresos (SSE)
-  const gst   = state.gastoActual;            // S/ acumulado gastos   (SSE)
-  const res   = ing - gst;
-  const mar   = ing > 0 ? (res / ing * 100) : 0;
-  const ratio = gst > 0 ? (gst / (ing || gst) * 100) : 0;
-  const pe    = gst;
-
-  const metaIng = state.metaIngreso;
-  const metaGst = state.metaGasto;
-  const metaRes = metaIng - metaGst;
-  const metaMar = metaIng > 0 ? (metaRes / metaIng * 100) : 0;
-
-  const varIng = metaIng > 0 ? ((ing - metaIng) / metaIng * 100) : 0;
-  const varGst = metaGst > 0 ? ((gst - metaGst) / metaGst * 100) : 0;
-  const varRes = metaRes !== 0 ? ((res - metaRes) / Math.abs(metaRes) * 100) : 0;
-  const varMar = metaMar > 0 ? ((mar - metaMar) / metaMar * 100) : 0;
-
-  // Ingresos
-  set('kpi-ingreso-actual', fmtK(ing));
-  set('kpi-ingreso-meta',   fmtK(metaIng));
-  setBadge('kpi-ingreso-var', varIng, true);
-
-  // Gastos (inverso: subir gasto = malo)
-  set('kpi-gasto-actual', fmtK(gst));
-  set('kpi-gasto-meta',   fmtK(metaGst));
-  setBadge('kpi-gasto-var', varGst, false);
-
-  // Resultado
-  set('kpi-resultado-actual', fmtK(res));
-  set('kpi-resultado-meta',   fmtK(metaRes));
-  setBadge('kpi-resultado-var', varRes, true);
-
-  // Margen
-  set('kpi-margen-actual', mar.toFixed(1));
-  set('kpi-margen-meta',   metaMar.toFixed(1));
-  setBadge('kpi-margen-var', varMar, true);
-
-  // Punto equilibrio
-  set('pe-val', fmtK(pe));
-  set('pe-prev', `Mes previo (S./) ${fmtK(state.prevGasto)}`);
-  const varPe = state.prevGasto > 0 ? ((pe - state.prevGasto) / state.prevGasto * 100) : 0;
-  setBadge('pe-var', varPe, false, true);
-
-  // Ratio
-  set('ratio-val', ratio.toFixed(1));
-  const prevRatio = state.prevIngreso > 0 ? (state.prevGasto / state.prevIngreso * 100) : 0;
-  set('ratio-prev', `Mes previo ${prevRatio.toFixed(1)}%`);
-  const varRatio = prevRatio > 0 ? ((ratio - prevRatio) / prevRatio * 100) : 0;
-  setBadge('ratio-var', varRatio, false, true);
-
-  // Alerta ejecutiva
-  renderAlerta(ing, gst, ratio, mar);
-
-  // Top 3 riesgo
-  renderRisk();
-
-  // Fecha de última actualización
-  set('last-update', new Date().toLocaleDateString('es-PE', {day:'2-digit',month:'short',year:'numeric'}));
+function loadKPIs() {
+  var month = document.getElementById('selMonth').value;
+  var year  = document.getElementById('inpYear').value;
+  fetch('/api/kpis?year=' + year + '&month=' + month)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      renderKPIs(d);
+      document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('es-PE');
+    })
+    .catch(function(e) { console.error('REST /api/kpis:', e); });
 }
 
-function renderAlerta(ing, gst, ratio, mar) {
-  let msg = '✅ Operación normal';
-  let val = '';
-  let cls = 'badge-green';
+function initMQTT() {
+  setMqttStatus('connecting');
+  var client;
+  try { client = mqtt.connect(MQTT_URL, MQTT_OPTS); }
+  catch(e) { setMqttStatus('error', e.message); return; }
 
-  if (ratio > 85) {
-    msg = '⚠️ Ratio gasto/ingreso crítico';
-    val = ratio.toFixed(1) + '%';
-    cls = 'badge-red';
-  } else if (mar < 10) {
-    msg = '⚠️ Margen operativo bajo';
-    val = mar.toFixed(1) + '%';
-    cls = 'badge-yellow';
-  } else if (gst > ing) {
-    msg = '🚨 Gastos superan ingresos';
-    val = fmtK(gst - ing);
-    cls = 'badge-red';
-  } else {
-    val = fmtK(ing);
-  }
+  client.on('connect', function() {
+    setMqttStatus('connected');
+    client.subscribe(MQTT_TOPIC, { qos: 1 }, function(err) {
+      if (err) setMqttStatus('error', 'Error suscripcion');
+      else console.log('[MQTT] Suscrito a ' + MQTT_TOPIC);
+    });
+  });
 
-  const alertVal = document.getElementById('alerta-val');
-  alertVal.textContent = val || msg;
-  alertVal.className = 'alert-val kpi-badge ' + cls;
-  document.getElementById('alerta-desc').textContent = msg;
-}
-
-function renderRisk() {
-  // Top 3 líneas con mayor gasto relativo (simulated)
-  const sorted = Object.entries(state.composicion)
-    .sort((a,b) => b[1]-a[1]).slice(0,2);
-
-  set('risk-val1', fmtK(sorted[0]?.[1] ?? 0));
-  set('risk-lbl1', sorted[0]?.[0] ?? '—');
-  set('risk-val2', fmtK(sorted[1]?.[1] ?? 0));
-  set('risk-lbl2', sorted[1]?.[0] ?? '—');
-
-  const totalGst = Object.values(state.composicion).reduce((a,b)=>a+b,0);
-  const top2 = (sorted[0]?.[1] ?? 0) + (sorted[1]?.[1] ?? 0);
-  const varRisk = totalGst > 0 ? (top2/totalGst*100) : 0;
-  setBadge('risk-var', varRisk - 50, false, true);
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// SSE — CONEXIÓN Y PROCESAMIENTO DE EVENTOS
-// ══════════════════════════════════════════════════════════════════════════════
-
-// Mapeo de ProjectConstants::EXP_TYPE_* a etiquetas legibles
-const TYPE_LABELS = {
-  'additional':    'Adicional',
-  'static':        'Fijo / Estático',
-  'payroll':       'Planilla',
-  'pext_expense':  'Gasto PEXT',
-  'deduction':     'Deducciones',
-  'administrative':'Administrativo',
-};
-
-function connectSSE() {
-  const es = new EventSource(SSE_URL);
-
-  es.onopen = () => {
-    document.getElementById('dot').classList.add('on');
-    document.getElementById('sse-status').textContent = 'En tiempo real';
-  };
-  es.onerror = () => {
-    document.getElementById('dot').classList.remove('on');
-    document.getElementById('sse-status').textContent = 'Reconectando…';
-  };
-
-  es.onmessage = (e) => {
+  client.on('message', function(topic, payload) {
     try {
-      const evt = JSON.parse(e.data);
-      if (!TARGET_TABLES.includes(evt.table)) return;
-      processBinlogEvent(evt);
-    } catch { /* keepalive / comentario SSE, ignorar */ }
-  };
+      var data = JSON.parse(payload.toString());
+      mqttMsgCount++;
+      document.getElementById('mqttCount').textContent = mqttMsgCount;
+      if (data.month) document.getElementById('selMonth').value = String(data.month);
+      if (data.year)  document.getElementById('inpYear').value  = String(data.year);
+      renderKPIs(data);
+      document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('es-PE');
+      flashCards();
+      console.log('[MQTT] KPIs recibidos y renderizados desde ' + topic);
+    } catch(e) { console.error('[MQTT] Parse error:', e); }
+  });
+
+  client.on('reconnect', function() { setMqttStatus('connecting'); });
+  client.on('close',     function() { setMqttStatus('error', 'Desconectado'); });
+  client.on('offline',   function() { setMqttStatus('error', 'Sin conexion'); });
+  client.on('error',     function(e) { setMqttStatus('error', e.message.substr(0,30)); });
 }
 
-/**
- * general_expenses solo contiene EGRESOS.
- * Tipos (campo `type`):  additional | static | payroll | pext_expense | deduction | administrative
- * Línea de negocio:      campo `zone`
- * Categoría de gasto:    campo `expense_type`
- *
- * Los INGRESOS provienen de otro módulo (account_statements / billing).
- * En el estado inicial se cargan con datos históricos; los eventos SSE actualizan
- * únicamente los gastos en tiempo real.
- */
-function processBinlogEvent(evt) {
-  const row    = evt.after || evt.before || {};
-  const amount  = parseFloat(row.amount) || 0;
-  const rawType = (row.type || 'Otros').toLowerCase();
-  const zone    = row.zone    || 'Sin zona';
-  const expType = row.expense_type || 'Otros';
-  const concept = row.operation_number || row.doc_number || TYPE_LABELS[rawType] || rawType;
-
-  // La etiqueta para el donut de composición es el type de ProjectConstants
-  const composKey = TYPE_LABELS[rawType] || rawType;
-
-  if (evt.type === 'INSERT') {
-    state.gastoActual += amount;
-    state.composicion[composKey] = (state.composicion[composKey] || 0) + amount;
-    // Para el donut de zonas en gastos también registramos por zone
-    state.lineas[zone] = (state.lineas[zone] || 0) + amount;
-  } else if (evt.type === 'UPDATE') {
-    const prevAmount = parseFloat((evt.before || {}).amount) || 0;
-    const diff = amount - prevAmount;
-    state.gastoActual += diff;
-    state.composicion[composKey] = Math.max(0, (state.composicion[composKey] || 0) + diff);
-    state.lineas[zone] = Math.max(0, (state.lineas[zone] || 0) + diff);
-  } else if (evt.type === 'DELETE') {
-    state.gastoActual = Math.max(0, state.gastoActual - amount);
-    state.composicion[composKey] = Math.max(0, (state.composicion[composKey] || 0) - amount);
-    state.lineas[zone] = Math.max(0, (state.lineas[zone] || 0) - amount);
-  }
-
-  updateCharts();
-  renderKPIs();
-  addToLog(evt, concept, amount, false); // false = es gasto
-}
-
-function updateCharts() {
-  // ── Donut zonas — reconstruir desde state.lineas (solo SSE real)
-  const linKeys = Object.keys(state.lineas);
-  if (linKeys.length > 0) {
-    chartLinea.data.labels   = linKeys;
-    chartLinea.data.datasets[0].data            = Object.values(state.lineas);
-    chartLinea.data.datasets[0].backgroundColor = PALETTE_DONUT.slice(0, linKeys.length);
-    chartLinea.update('none');
-  }
-
-  // ── Donut composición — reconstruir desde state.composicion (solo SSE real)
-  const compKeys = Object.keys(state.composicion);
-  if (compKeys.length > 0) {
-    chartComposicion.data.labels   = compKeys;
-    chartComposicion.data.datasets[0].data            = Object.values(state.composicion);
-    chartComposicion.data.datasets[0].backgroundColor = PALETTE_DONUT.slice(0).reverse().slice(0, compKeys.length);
-    chartComposicion.update('none');
-  }
-
-  // ── Trend — actualizar último mes con acumulado SSE real
-  const last = state.ingresos.length - 1;
-  state.ingresos[last] = state.ingresoActual;
-  state.gastos[last]   = state.gastoActual;
-  chartTrend.data.datasets[0].data = [...state.ingresos];
-  chartTrend.data.datasets[1].data = [...state.gastos];
-  chartTrend.data.datasets[2].data = state.ingresos.map((v,i) => v - state.gastos[i]);
-  chartTrend.update('none');
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// LOG DE EVENTOS
-// ══════════════════════════════════════════════════════════════════════════════
-function addToLog(evt, concept, amount, isIngreso) {
-  document.getElementById('log-empty')?.remove();
-  const list = document.getElementById('log-list');
-  const time  = new Date().toLocaleTimeString('es-PE');
-  const item  = document.createElement('div');
-  item.className = 'log-item';
-  item.innerHTML = `
-    <span class="log-badge ${evt.type}">${evt.type}</span>
-    <span class="log-concept">${evt.table} · ${concept}</span>
-    <span class="log-amount" style="color:${isIngreso?'#22c55e':'#ef4444'}">
-      ${isIngreso?'+':'-'}S./ ${fmtK(amount)}
-    </span>
-    <span class="log-time">${time}</span>
-  `;
-  list.insertBefore(item, list.firstChild);
-  while (list.children.length > 50) list.removeChild(list.lastChild);
-}
-
-function clearLog() {
-  document.getElementById('log-list').innerHTML =
-    '<div class="no-data" id="log-empty">Log limpiado. Esperando transacciones…</div>';
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// HELPERS
-// ══════════════════════════════════════════════════════════════════════════════
-function fmt(n)    { return n>=1000000?(n/1000000).toFixed(2)+'M':(n/1000).toFixed(1)+'k' }
-function fmtK(n)   { return Number(n).toLocaleString('es-PE', {minimumFractionDigits:2,maximumFractionDigits:2}) }
-function pct(v,t)  { return t>0?(v/t*100).toFixed(0):'0' }
-function set(id,v) { const el=document.getElementById(id); if(el) el.textContent=v }
-
-function setBadge(id, pctVal, positiveIsGood, small=false) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const good = positiveIsGood ? pctVal >= 0 : pctVal <= 0;
-  el.className = `kpi-badge ${good?'badge-green':'badge-red'}${small?' '+'':''}`;
-  if (small) el.style.cssText = 'font-size:.62rem;padding:2px 6px';
-  el.textContent = (pctVal >= 0 ? '+' : '') + pctVal.toFixed(1) + '%';
-}
-
-function setTrendView(view, btn) {
-  document.querySelectorAll('.trend-controls button').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  if (view === 'trimestral') {
-    chartTrend.data.labels = ['Q1','Q2','Q3','Q4'];
-    const ing4 = [
-      state.ingresos.slice(0,3).reduce((a,b)=>a+b,0),
-      state.ingresos.slice(3,6).reduce((a,b)=>a+b,0),
-      state.ingresos.slice(6,9).reduce((a,b)=>a+b,0),
-      state.ingresos.slice(9,12).reduce((a,b)=>a+b,0),
-    ];
-    const gst4 = [
-      state.gastos.slice(0,3).reduce((a,b)=>a+b,0),
-      state.gastos.slice(3,6).reduce((a,b)=>a+b,0),
-      state.gastos.slice(6,9).reduce((a,b)=>a+b,0),
-      state.gastos.slice(9,12).reduce((a,b)=>a+b,0),
-    ];
-    chartTrend.data.datasets[0].data = ing4;
-    chartTrend.data.datasets[1].data = gst4;
-    chartTrend.data.datasets[2].data = ing4.map((v,i) => v - gst4[i]);
+function setMqttStatus(state, msg) {
+  var dot = document.getElementById('mqttDot');
+  var lbl = document.getElementById('mqttLabel');
+  if (state === 'connected') {
+    dot.className = 'w-2 h-2 rounded-full bg-emerald-400 inline-block dot-pulse';
+    lbl.textContent = 'MQTT conectado'; lbl.className = 'text-emerald-400 text-xs';
+  } else if (state === 'connecting') {
+    dot.className = 'w-2 h-2 rounded-full bg-amber-400 inline-block dot-pulse';
+    lbl.textContent = 'Conectando...';  lbl.className = 'text-amber-400 text-xs';
   } else {
-    chartTrend.data.labels = state.meses;
-    chartTrend.data.datasets[0].data = [...state.ingresos];
-    chartTrend.data.datasets[1].data = [...state.gastos];
-    chartTrend.data.datasets[2].data = state.ingresos.map((v,i) => v - state.gastos[i]);
+    dot.className = 'w-2 h-2 rounded-full bg-rose-500 inline-block';
+    lbl.textContent = msg || 'Error';   lbl.className = 'text-rose-400 text-xs';
   }
-  chartTrend.update();
 }
 
-function applyFilters() { renderKPIs(); }
+function renderKPIs(d) {
+  if (!d) return;
+  setText('valIngresos', fmt(d.total_ingresos));
+  setText('valGastos',   fmt(d.total_gastos));
 
-// ══════════════════════════════════════════════════════════════════════════════
-// INIT
-// ══════════════════════════════════════════════════════════════════════════════
-renderKPIs();
-connectSSE();
+  var resEl = document.getElementById('valResultado');
+  resEl.textContent = fmt(d.resultado);
+  resEl.className = 'text-2xl font-bold ' + (d.resultado >= 0 ? 'text-emerald-400' : 'text-rose-400');
+  var lblR = document.getElementById('lblResultado');
+  if (lblR) lblR.textContent = d.resultado >= 0 ? 'Superavit' : 'Deficit';
+
+  var mgEl = document.getElementById('valMargen');
+  mgEl.textContent = fmtPct(d.margen);
+  mgEl.className = 'text-2xl font-bold ' + (d.margen >= 20 ? 'text-emerald-400' : d.margen >= 0 ? 'text-amber-400' : 'text-rose-400');
+  var mPct = Math.min(Math.max(d.margen || 0, 0), 100);
+  var mBar = document.getElementById('margenBar');
+  mBar.style.width = mPct + '%';
+  mBar.className = 'h-1.5 rounded-full transition-all duration-700 ' + (d.margen >= 20 ? 'bg-emerald-500' : d.margen >= 0 ? 'bg-amber-500' : 'bg-rose-500');
+
+  renderDonut('donutIngresos', 'legendIngresos', d.ingresos_por_linea  || []);
+  renderDonut('donutGastos',   'legendGastos',   d.gastos_por_concepto || []);
+
+  var eqEl = document.getElementById('valEquilibrio');
+  eqEl.textContent = fmt(d.punto_equilibrio);
+  eqEl.className = 'text-xl font-bold ' + (d.punto_equilibrio >= 0 ? 'text-emerald-400' : 'text-rose-400');
+  var ratioEq = d.total_ingresos > 0 ? Math.min((d.total_gastos / d.total_ingresos) * 100, 100) : 50;
+  var eBar = document.getElementById('equilibrioBar');
+  eBar.style.width = ratioEq + '%';
+  eBar.className = 'h-2 rounded-full transition-all duration-700 ' + (ratioEq <= 80 ? 'bg-emerald-500' : ratioEq <= 100 ? 'bg-amber-500' : 'bg-rose-500');
+
+  var ae = d.alerta_ejecutiva || {};
+  setText('alertaNombre', ae.nombre || '');
+  setText('alertaPct',    ae.porcentaje != null ? fmtPct(ae.porcentaje) : '');
+
+  var cont = document.getElementById('top3Container');
+  cont.innerHTML = '';
+  var top3 = d.top3_riesgo || [];
+  if (top3.length === 0) {
+    cont.innerHTML = '<p class="text-xs text-slate-500">Sin datos de mes anterior</p>';
+  } else {
+    top3.forEach(function(item) {
+      var sign = item.variacion >= 0 ? '+' : '';
+      var cls  = item.variacion >= 0 ? 'text-rose-400' : 'text-emerald-400';
+      var row  = document.createElement('div');
+      row.className = 'flex justify-between items-center text-xs';
+      row.innerHTML = '<span class="text-slate-300 truncate max-w-xs">' + esc(item.cost_line||'') + '</span>' +
+                      '<span class="' + cls + ' font-semibold ml-2">' + sign + fmtShort(item.variacion) + '</span>';
+      cont.appendChild(row);
+    });
+  }
+
+  var ratio = d.ratio_gasto_ingreso || 0;
+  var ratEl = document.getElementById('valRatio');
+  ratEl.textContent = fmtPct(ratio);
+  ratEl.className = 'text-3xl font-bold ' + (ratio <= 80 ? 'text-emerald-400' : ratio <= 100 ? 'text-amber-400' : 'text-rose-400');
+  var rBar = document.getElementById('ratioBar');
+  rBar.style.width = Math.min(ratio,100) + '%';
+  rBar.className = 'h-2 rounded-full transition-all duration-700 ' + (ratio <= 80 ? 'bg-emerald-500' : ratio <= 100 ? 'bg-amber-500' : 'bg-rose-500');
+  var rLbl = document.getElementById('ratioLabel');
+  rLbl.textContent = ratio <= 80 ? 'Eficiencia saludable' : ratio <= 100 ? 'Atencion requerida' : 'Gastos superan ingresos';
+  rLbl.className = 'text-xs mt-1 ' + (ratio <= 80 ? 'text-emerald-500' : ratio <= 100 ? 'text-amber-500' : 'text-rose-500');
+}
+
+function renderDonut(canvasId, legendId, items) {
+  var canvas = document.getElementById(canvasId);
+  var legEl  = document.getElementById(legendId);
+  if (canvasId === 'donutIngresos' && chartI) { chartI.destroy(); chartI = null; }
+  if (canvasId === 'donutGastos'   && chartG) { chartG.destroy(); chartG = null; }
+  if (!items || items.length === 0) { legEl.innerHTML = '<p class="text-slate-500 text-xs">Sin datos</p>'; return; }
+
+  var labels = items.map(function(i) { return i.nombre || 'Sin nombre'; });
+  var values = items.map(function(i) { return i.total  || 0; });
+  var colors = labels.map(function(_,idx) { return PALETTE[idx % PALETTE.length]; });
+
+  var chart = new Chart(canvas, {
+    type: 'doughnut',
+    data: { labels: labels, datasets: [{ data: values, backgroundColor: colors, borderWidth:0, hoverOffset:6 }] },
+    options: {
+      cutout: '65%',
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: function(ctx) {
+          var item = items[ctx.dataIndex];
+          return ' ' + fmtShort(ctx.raw) + ' (' + fmtPct(item ? item.porcentaje : 0) + ')';
+        }}}
+      },
+      animation: { duration: 600 }
+    }
+  });
+  if (canvasId === 'donutIngresos') chartI = chart; else chartG = chart;
+
+  legEl.innerHTML = items.map(function(item, i) {
+    return '<div class="flex items-center gap-2">' +
+      '<span class="w-2.5 h-2.5 rounded-sm flex-shrink-0" style="background:' + colors[i] + '"></span>' +
+      '<span class="text-slate-300 truncate">' + esc(item.nombre||'') + '</span>' +
+      '<span class="ml-auto text-slate-400 pl-2">' + fmtPct(item.porcentaje) + '</span></div>';
+  }).join('');
+}
+
+function flashCards() {
+  ['cardIngresos','cardGastos','cardResultado','cardMargen'].forEach(function(id) {
+    var el = document.getElementById(id); if (!el) return;
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  });
+}
+
+function fmt(n) {
+  if (n==null||isNaN(n)) return 'S/ 0.00';
+  return 'S/ ' + Number(n).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function fmtShort(n) {
+  if (n==null||isNaN(n)) return 'S/ 0';
+  var abs=Math.abs(n),sign=n<0?'-':'';
+  if (abs>=1e6) return sign+'S/ '+(abs/1e6).toFixed(1)+'M';
+  if (abs>=1e3) return sign+'S/ '+(abs/1e3).toFixed(1)+'K';
+  return sign+'S/ '+abs.toFixed(0);
+}
+function fmtPct(n) {
+  if (n==null||isNaN(n)) return '0.0%';
+  return Number(n).toFixed(1)+'%';
+}
+function setText(id,val) { var el=document.getElementById(id); if(el) el.textContent=val; }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 </script>
 </body>
 </html>

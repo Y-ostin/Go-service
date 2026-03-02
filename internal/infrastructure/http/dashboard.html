@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CCIP — Dashboard Financiero</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
+  <style>
+    body { background:#0f1117; font-family:'Inter',system-ui,sans-serif; }
+    .card { background:#1a1d2b; border:1px solid #252840; transition:border-color .3s; }
+    .card:hover { border-color:#3b4080; }
+    .flash { animation:flash .7s ease; }
+    @keyframes flash { 0%,100%{background:#1a1d2b} 50%{background:#1e3257} }
+    select { background:#0f1117; border:1px solid #252840; color:#e2e8f0; cursor:pointer; }
+    select:focus { outline:none; border-color:#4f6ef7; }
+    .dot-pulse { animation:dp 1.4s infinite; }
+    @keyframes dp { 0%,100%{opacity:1} 50%{opacity:.25} }
+    .arrow-up   { color:#10b981 }
+    .arrow-down { color:#f43f5e }
+    .bar-track  { background:#252840; border-radius:4px; height:6px; overflow:hidden; }
+    .bar-fill   { height:6px; border-radius:4px; transition:width .6s ease; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-200 p-4 md:p-6">
+
+<!-- ── HEADER ──────────────────────────────────────────────── -->
+<header class="flex flex-wrap items-center justify-between gap-4 mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-white tracking-tight">CCIP · Dashboard Financiero</h1>
+    <p class="text-sm text-slate-400 mt-0.5">Métricas ejecutivas mensuales · tiempo real vía MQTT</p>
+  </div>
+
+  <div class="flex items-center gap-3 flex-wrap">
+    <!-- selector año -->
+    <select id="selYear" class="rounded-lg px-3 py-2 text-sm min-w-[110px]" onchange="onYearChange()">
+      <option value="">Cargando…</option>
+    </select>
+    <!-- selector mes -->
+    <select id="selMonth" class="rounded-lg px-3 py-2 text-sm min-w-[130px]" onchange="onFilterChange()">
+      <option value="0">Todo el año</option>
+      <option value="1">Enero</option>
+      <option value="2">Febrero</option>
+      <option value="3">Marzo</option>
+      <option value="4">Abril</option>
+      <option value="5">Mayo</option>
+      <option value="6">Junio</option>
+      <option value="7">Julio</option>
+      <option value="8">Agosto</option>
+      <option value="9">Septiembre</option>
+      <option value="10">Octubre</option>
+      <option value="11">Noviembre</option>
+      <option value="12">Diciembre</option>
+    </select>
+
+    <!-- indicador MQTT -->
+    <div class="flex items-center gap-1.5 text-xs">
+      <span id="mqttDot"   class="w-2 h-2 rounded-full bg-amber-400 inline-block dot-pulse"></span>
+      <span id="mqttLabel" class="text-amber-400">Conectando…</span>
+    </div>
+  </div>
+</header>
+
+<!-- ── FILA 1: Ingresos / Egresos ──────────────────────────── -->
+<section class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+
+  <!-- Ingresos -->
+  <div class="card rounded-2xl p-5" id="cardIngresos">
+    <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Ingresos del mes</p>
+    <p class="text-3xl font-bold text-emerald-400" id="valIngresos">—</p>
+    <div class="flex items-center gap-2 mt-2">
+      <span id="varIngresosIcon" class="text-sm font-bold">—</span>
+      <span class="text-xs text-slate-500"><span id="lblVsIngresos">vs mes anterior</span>
+        (<span id="valIngresosAnt" class="text-slate-400">—</span>)</span>
+    </div>
+    <p class="text-xs text-slate-500 mt-2">cicsa_charge_areas · COALESCE(invoice_date, created_at)</p>
+  </div>
+
+  <!-- Egresos -->
+  <div class="card rounded-2xl p-5" id="cardEgresos">
+    <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Egresos del mes</p>
+    <p class="text-3xl font-bold text-rose-400" id="valEgresos">—</p>
+    <div class="flex items-center gap-2 mt-2">
+      <span id="varEgresosIcon" class="text-sm font-bold">—</span>
+      <span class="text-xs text-slate-500"><span id="lblVsEgresos">vs mes anterior</span>
+        (<span id="valEgresosAnt" class="text-slate-400">—</span>)</span>
+    </div>
+    <p class="text-xs text-slate-500 mt-2">payment_approvals · is_validated = 1</p>
+  </div>
+
+</section>
+
+<!-- ── FILA 2: Resultado / Margen ──────────────────────────── -->
+<section class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+
+  <!-- Resultado -->
+  <div class="card rounded-2xl p-5" id="cardResultado">
+    <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Resultado neto</p>
+    <p class="text-3xl font-bold" id="valResultado">—</p>
+    <p class="text-xs text-slate-500 mt-1" id="lblResultado">Ingresos − Egresos</p>
+    <div class="bar-track mt-3">
+      <div class="bar-fill bg-blue-500" id="barResultado" style="width:50%"></div>
+    </div>
+    <div class="flex justify-between text-xs text-slate-600 mt-1">
+      <span>Egresos</span><span>Ingresos</span>
+    </div>
+  </div>
+
+  <!-- Margen -->
+  <div class="card rounded-2xl p-5" id="cardMargen">
+    <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Margen bruto</p>
+    <p class="text-3xl font-bold" id="valMargen">—</p>
+    <p class="text-xs text-slate-500 mt-1">Resultado / Ingresos × 100</p>
+    <div class="bar-track mt-3">
+      <div class="bar-fill bg-emerald-500" id="barMargen" style="width:0%"></div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ── FILA 3: Periodo info + estado MQTT ──────────────────── -->
+<section class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+
+  <div class="card rounded-2xl p-5">
+    <p class="text-xs text-slate-400 uppercase tracking-widest mb-3">Período seleccionado</p>
+    <p class="text-lg font-semibold text-white" id="lblPeriodo">—</p>
+    <p class="text-xs text-slate-500 mt-1">
+      Última actualización: <span id="lastUpdate" class="text-slate-300">—</span>
+    </p>
+    <p class="text-xs text-slate-500 mt-1">
+      Mensajes MQTT recibidos: <span id="mqttCount" class="text-slate-300">0</span>
+    </p>
+  </div>
+
+  <div class="card rounded-2xl p-5">
+    <p class="text-xs text-slate-400 uppercase tracking-widest mb-3">Ratio Gasto / Ingreso</p>
+    <p class="text-3xl font-bold" id="valRatio">—</p>
+    <p class="text-xs mt-1" id="lblRatio">—</p>
+    <div class="bar-track mt-3">
+      <div class="bar-fill bg-blue-500" id="barRatio" style="width:0%"></div>
+    </div>
+    <p class="text-xs text-slate-600 mt-1">Ideal: menos de 80%</p>
+  </div>
+
+</section>
+
+<!-- ── FOOTER ──────────────────────────────────────────────── -->
+<footer class="text-xs text-slate-600 text-center mt-4">
+  GO-SERVICE · <span id="footerPeriodo">—</span> · MQTT: ccip/dashboard
+</footer>
+
+<script>
+// ── Config MQTT ────────────────────────────────────────────────────────────
+var MQTT_URL   = 'wss://s9a612f1.ala.eu-central-1.emqxsl.com:8084/mqtt';
+var MQTT_TOPIC = 'ccip/dashboard';
+var MQTT_OPTS  = {
+  clientId        : 'ccip-dash-' + Math.random().toString(36).substr(2,8),
+  username        : 'ccip-admin',
+  password        : '12345678',
+  clean           : true,
+  reconnectPeriod : 5000,
+  connectTimeout  : 30000,
+  rejectUnauthorized: false
+};
+
+var mqttCount   = 0;
+var currentYear = 0, currentMonth = 0;
+
+// ── Inicialización ─────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', function() {
+  loadPeriods();
+  initMQTT();
+});
+
+// ── Períodos disponibles → poblar select de año ───────────────────────────
+function loadPeriods() {
+  fetch('/api/kpis/periods')
+    .then(function(r){ return r.json(); })
+    .then(function(periods) {
+      var selYear = document.getElementById('selYear');
+      selYear.innerHTML = '';
+      if (!periods || periods.length === 0) {
+        selYear.innerHTML = '<option value="">Sin datos</option>';
+        return;
+      }
+
+      // Extraer años únicos ordenados desc
+      var years = [];
+      periods.forEach(function(p) {
+        if (years.indexOf(p.year) === -1) years.push(p.year);
+      });
+      years.sort(function(a,b){ return b - a; });
+
+      // Opción acumulado total
+      var optAll = document.createElement('option');
+      optAll.value = '0';
+      optAll.textContent = '— Todos —';
+      selYear.appendChild(optAll);
+
+      var nowYear = new Date().getFullYear();
+      years.forEach(function(y) {
+        var opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = y;
+        if (y === nowYear) opt.selected = true;
+        selYear.appendChild(opt);
+      });
+
+      // Fallback: primer año si el actual no está
+      if (!selYear.value || selYear.value === '0') selYear.selectedIndex = 1;
+
+      // Seleccionar mes actual en el selector de mes
+      var nowMonth = new Date().getMonth() + 1;
+      document.getElementById('selMonth').value = String(nowMonth);
+
+      onFilterChange();
+    })
+    .catch(function(e) {
+      console.error('Error cargando períodos:', e);
+      var now = new Date();
+      loadKPIs(now.getFullYear(), now.getMonth()+1);
+    });
+}
+
+// Cuando cambia el año: resetear mes a "Todo el año" y recargar
+function onYearChange() {
+  document.getElementById('selMonth').value = '0';
+  onFilterChange();
+}
+
+function onFilterChange() {
+  var year  = parseInt(document.getElementById('selYear').value)  || 0;
+  var month = parseInt(document.getElementById('selMonth').value) || 0;
+  loadKPIs(year, month);
+}
+
+// ── Carga KPIs via REST ────────────────────────────────────────────────────
+// year=0           → acumulado total
+// year=YYYY, month=0 → resumen anual
+// year=YYYY, month=M → mes específico
+function loadKPIs(year, month) {
+  currentYear  = year;
+  currentMonth = month;
+  var url;
+  if (year === 0) {
+    url = '/api/kpis?year=0';
+  } else if (month === 0) {
+    url = '/api/kpis?year=' + year;
+  } else {
+    url = '/api/kpis?year=' + year + '&month=' + month;
+  }
+  fetch(url)
+    .then(function(r){ return r.json(); })
+    .then(function(d){ renderKPIs(d); })
+    .catch(function(e){ console.error('/api/kpis error:', e); });
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function renderKPIs(d) {
+  if (!d) return;
+
+  var isTodos  = (d.year === 0 && d.month === 0);
+  var isYearly = (d.year > 0  && d.month === 0);
+  var vsLabel  = isTodos ? 'acumulado total' : isYearly ? 'vs año anterior' : 'vs mes anterior';
+
+  set('lblVsIngresos', vsLabel);
+  set('lblVsEgresos',  vsLabel);
+
+  // Ingresos
+  set('valIngresos',    fmt(d.ingresos_actual));
+  set('valIngresosAnt', isTodos ? 'total' : fmt(d.ingresos_anterior));
+  if (isTodos) { var ei = document.getElementById('varIngresosIcon'); if(ei){ ei.textContent='∑'; ei.className='text-sm font-bold text-slate-400'; } }
+  else renderVariacion('varIngresosIcon', d.ingresos_variacion, d.ingresos_anterior);
+
+  // Egresos
+  set('valEgresos',    fmt(d.egresos_actual));
+  set('valEgresosAnt', isTodos ? 'total' : fmt(d.egresos_anterior));
+  if (isTodos) { var ee = document.getElementById('varEgresosIcon'); if(ee){ ee.textContent='∑'; ee.className='text-sm font-bold text-slate-400'; } }
+  else renderVariacion('varEgresosIcon', d.egresos_variacion, d.egresos_anterior, true);
+
+  // Resultado = Ingresos - Egresos
+  var resultado = (d.ingresos_actual || 0) - (d.egresos_actual || 0);
+  var resEl = document.getElementById('valResultado');
+  resEl.textContent = fmt(resultado);
+  resEl.className   = 'text-3xl font-bold ' + (resultado >= 0 ? 'text-emerald-400' : 'text-rose-400');
+  set('lblResultado', resultado >= 0 ? '✓ Superávit' : '⚠ Déficit');
+
+  // Barra resultado: proporción egresos/ingresos
+  var pctBar = d.ingresos_actual > 0
+    ? Math.min((d.egresos_actual / d.ingresos_actual) * 100, 100) : 50;
+  var barR = document.getElementById('barResultado');
+  barR.style.width = pctBar + '%';
+  barR.className   = 'bar-fill ' + (pctBar <= 80 ? 'bg-emerald-500' : pctBar <= 100 ? 'bg-amber-500' : 'bg-rose-500');
+
+  // Margen
+  var margen = d.ingresos_actual > 0 ? (resultado / d.ingresos_actual) * 100 : 0;
+  var mgEl = document.getElementById('valMargen');
+  mgEl.textContent = fmtPct(margen);
+  mgEl.className   = 'text-3xl font-bold ' + (margen >= 20 ? 'text-emerald-400' : margen >= 0 ? 'text-amber-400' : 'text-rose-400');
+  var barM = document.getElementById('barMargen');
+  barM.style.width = Math.max(0, Math.min(margen, 100)) + '%';
+  barM.className   = 'bar-fill ' + (margen >= 20 ? 'bg-emerald-500' : margen >= 0 ? 'bg-amber-500' : 'bg-rose-500');
+
+  // Ratio
+  var ratio = d.ingresos_actual > 0 ? (d.egresos_actual / d.ingresos_actual) * 100 : 0;
+  var ratEl  = document.getElementById('valRatio');
+  ratEl.textContent = fmtPct(ratio);
+  ratEl.className   = 'text-3xl font-bold ' + (ratio <= 80 ? 'text-emerald-400' : ratio <= 100 ? 'text-amber-400' : 'text-rose-400');
+  var ratLbl = document.getElementById('lblRatio');
+  ratLbl.textContent = ratio <= 80 ? '✓ Eficiencia saludable' : ratio <= 100 ? '⚠ Atención requerida' : '✗ Gastos superan ingresos';
+  ratLbl.className   = 'text-xs mt-1 ' + (ratio <= 80 ? 'text-emerald-400' : ratio <= 100 ? 'text-amber-400' : 'text-rose-400');
+  var barRatio = document.getElementById('barRatio');
+  barRatio.style.width = Math.min(ratio, 100) + '%';
+  barRatio.className   = 'bar-fill ' + (ratio <= 80 ? 'bg-emerald-500' : ratio <= 100 ? 'bg-amber-500' : 'bg-rose-500');
+
+  // Período
+  var periodoStr = isTodos  ? 'Todos los períodos · resumen general'
+                : isYearly ? 'Año ' + d.year + ' · resumen anual'
+                :             monthName(d.month) + ' ' + d.year;
+  set('lblPeriodo',    periodoStr);
+  set('footerPeriodo', periodoStr);
+  set('lastUpdate',    new Date().toLocaleTimeString('es-PE'));
+
+  // Flash
+  ['cardIngresos','cardEgresos','cardResultado','cardMargen'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('flash');
+    void el.offsetWidth;
+    el.classList.add('flash');
+  });
+}
+
+function renderVariacion(spanId, variacion, anterior, invertSign) {
+  var el = document.getElementById(spanId);
+  if (!el) return;
+  // Si no hay dato anterior, no mostrar variación
+  if (!anterior || anterior === 0) {
+    el.textContent = '—';
+    el.className   = 'text-sm font-bold text-slate-500';
+    return;
+  }
+  var pct = variacion || 0;
+  // Para egresos: subir es malo (rojo), bajar es bueno (verde)
+  var isPositiveGood = !invertSign;
+  var isGood = isPositiveGood ? pct >= 0 : pct <= 0;
+  var arrow  = pct >= 0 ? '▲' : '▼';
+  el.textContent = arrow + ' ' + Math.abs(pct).toFixed(1) + '%';
+  el.className   = 'text-sm font-bold ' + (isGood ? 'text-emerald-400' : 'text-rose-400');
+}
+
+// ── MQTT ───────────────────────────────────────────────────────────────────
+function initMQTT() {
+  mqttStatus('connecting');
+  var client;
+  try { client = mqtt.connect(MQTT_URL, MQTT_OPTS); }
+  catch(e) { mqttStatus('error', e.message); return; }
+
+  client.on('connect', function() {
+    mqttStatus('connected');
+    client.subscribe(MQTT_TOPIC, { qos:1 });
+  });
+
+  client.on('message', function(_topic, payload) {
+    try {
+      var data = JSON.parse(payload.toString());
+      mqttCount++;
+      set('mqttCount', mqttCount);
+
+      // Si el mensaje MQTT es del período actualmente visible → actualizar
+      if (!data.year && !data.month) return;
+      // Modo acumulado total: refrescar REST
+      if (currentYear === 0) { loadKPIs(0, 0); return; }
+      // Modo anual: si llega dato del año activo, refrescar anual vía REST
+      if (currentMonth === 0 && data.year === currentYear) { loadKPIs(currentYear, 0); return; }
+      if (data.year === currentYear && data.month === currentMonth) {
+        renderKPIs(data);
+      } else {
+        // Período diferente: solo notificar en consola, no cambiar el filtro
+        console.log('[MQTT] KPI para ' + data.year + '/' + data.month + ' recibido (no es el período activo)');
+      }
+    } catch(e) { console.error('[MQTT] parse error:', e); }
+  });
+
+  client.on('reconnect', function() { mqttStatus('connecting'); });
+  client.on('close',     function() { mqttStatus('error', 'Desconectado'); });
+  client.on('error',     function(e){ mqttStatus('error', e.message.substr(0,30)); });
+}
+
+function mqttStatus(state, msg) {
+  var dot = document.getElementById('mqttDot');
+  var lbl = document.getElementById('mqttLabel');
+  if      (state === 'connected')  { dot.className='w-2 h-2 rounded-full bg-emerald-400 inline-block dot-pulse'; lbl.textContent='MQTT activo';         lbl.className='text-emerald-400 text-xs'; }
+  else if (state === 'connecting') { dot.className='w-2 h-2 rounded-full bg-amber-400  inline-block dot-pulse'; lbl.textContent='Conectando…';          lbl.className='text-amber-400  text-xs'; }
+  else                             { dot.className='w-2 h-2 rounded-full bg-rose-500    inline-block';           lbl.textContent=msg||'Error MQTT';      lbl.className='text-rose-400   text-xs'; }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+var MONTHS = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio',
+              'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+function monthName(m) { return MONTHS[m] || '?'; }
+
+function fmt(n) {
+  if (n == null || isNaN(n)) return 'S/ 0.00';
+  return 'S/ ' + Number(n).toLocaleString('es-PE',{minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtPct(n) {
+  if (n == null || isNaN(n)) return '0.0%';
+  return Number(n).toFixed(1) + '%';
+}
+function set(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; }
+</script>
+</body>
+</html>

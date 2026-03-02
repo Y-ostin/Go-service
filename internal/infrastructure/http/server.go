@@ -1,169 +1,120 @@
-// Package http implementa el servidor HTTP del servicio con endpoints para:
-//   - WebSocket (/ws)
-//   - SSE (/events)
-//   - Health check (/health)
-//   - Métricas Prometheus (/metrics)
+﻿// Package http implementa el servidor HTTP del servicio con endpoints para:
+//   - GET /dashboard           → dashboard HTML embebido
+//   - GET /health              → health check JSON
+//   - GET /metrics             → métricas Prometheus
+//   - GET /api/kpis            → KPIs financieros del mes
+//   - GET /api/kpis/periods    → períodos con data disponible
 package http
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"time"
+_ "embed"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.uber.org/zap"
+"context"
+"encoding/json"
+"fmt"
+"net/http"
+"time"
 
-	"github.com/ccip/go-service/internal/config"
-	"github.com/ccip/go-service/internal/domain"
+"github.com/prometheus/client_golang/prometheus/promhttp"
+"go.uber.org/zap"
+"gorm.io/gorm"
+
+"github.com/ccip/go-service/internal/config"
 )
 
-// Server encapsula el servidor HTTP con todos sus handlers.
+//go:embed dashboard.html
+var dashboardHTML string
+
+// Server encapsula el servidor HTTP con el endpoint de KPIs.
 type Server struct {
-	httpServer *http.Server
-	log        *zap.Logger
-	cfg        *config.ServerConfig
-	wsHandler  http.Handler
-	sseHandler http.Handler
-	dispatcher domain.EventPublisher
+httpServer *http.Server
+log        *zap.Logger
+cfg        *config.ServerConfig
+gormDB     *gorm.DB
 }
 
-// NewServer construye el servidor HTTP con todos los handlers inyectados.
+// NewServer construye el servidor HTTP con el handler de KPIs.
 func NewServer(
-	cfg *config.ServerConfig,
-	wsHandler http.Handler,
-	sseHandler http.Handler,
-	dispatcher domain.EventPublisher,
-	log *zap.Logger,
+cfg *config.ServerConfig,
+dbCfg *config.DBConfig,
+gormDB *gorm.DB,
+log *zap.Logger,
 ) *Server {
-	s := &Server{
-		log:        log,
-		cfg:        cfg,
-		wsHandler:  wsHandler,
-		sseHandler: sseHandler,
-		dispatcher: dispatcher,
-	}
+s := &Server{
+log:    log,
+cfg:    cfg,
+gormDB: gormDB,
+}
 
-	mux := http.NewServeMux()
+mux := http.NewServeMux()
 
-	// ── CORS wrapper: permite acceso desde cualquier origen (dev local) ────
-	withCORS := func(h http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Cache-Control")
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			h.ServeHTTP(w, r)
-		})
-	}
+//  CORS wrapper: permite acceso desde cualquier origen (dev local) 
+withCORS := func(h http.Handler) http.Handler {
+return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+w.Header().Set("Access-Control-Allow-Origin", "*")
+w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Cache-Control")
+if r.Method == http.MethodOptions {
+w.WriteHeader(http.StatusNoContent)
+return
+}
+h.ServeHTTP(w, r)
+})
+}
 
-	// ── Endpoints de streaming ─────────────────────────────────────────────
-	mux.Handle("/ws", withCORS(loggingMiddleware(log, wsHandler)))
-	mux.Handle("/events", withCORS(loggingMiddleware(log, sseHandler)))
+// ── Endpoints ─────────────────────────────────────────────────────────────
+mux.HandleFunc("/health", s.handleHealth)
+mux.Handle("/metrics", promhttp.Handler())
 
-	// ── Health check ──────────────────────────────────────────────────────
-	mux.HandleFunc("/health", s.handleHealth)
+// ── Dashboard HTML embebido ──────────────────────────────────────────────
+mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(dashboardHTML))
+})
 
-	// ── Métricas Prometheus ───────────────────────────────────────────────
-	mux.Handle("/metrics", promhttp.Handler())
+// ── API KPIs financieros (GORM) ───────────────────────────────────────
+	kpiHandler := NewKPIHandler(s.gormDB, log)
+	mux.Handle("/api/kpis", withCORS(kpiHandler))
+	mux.Handle("/api/kpis/periods", withCORS(http.HandlerFunc(kpiHandler.ServePeriodsHTTP)))
 
-	// ── Dashboard ejecutivo (HTML estático) ───────────────────────────────
-	mux.HandleFunc("/dashboard", s.handleDashboard)
-	mux.HandleFunc("/", s.handleRoot)
+s.httpServer = &http.Server{
+Addr:         fmt.Sprintf(":%d", cfg.Port),
+Handler:      mux,
+ReadTimeout:  cfg.ReadTimeout,
+WriteTimeout: 30 * time.Second,
+IdleTimeout:  120 * time.Second,
+}
 
-	// ── Dashboard info ────────────────────────────────────────────────────
-	mux.HandleFunc("/info", s.handleInfo)
-
-	s.httpServer = &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      mux,
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: 0, // 0 = sin timeout en escritura (necesario para SSE/WS)
-		IdleTimeout:  120 * time.Second,
-	}
-
-	return s
+return s
 }
 
 // Start inicia el servidor HTTP. Bloquea hasta error o cierre.
 func (s *Server) Start() error {
-	s.log.Info("servidor HTTP iniciado",
-		zap.String("addr", s.httpServer.Addr),
-		zap.String("ws_endpoint", fmt.Sprintf("ws://localhost%s/ws", s.httpServer.Addr)),
-		zap.String("sse_endpoint", fmt.Sprintf("http://localhost%s/events", s.httpServer.Addr)),
-		zap.String("metrics_endpoint", fmt.Sprintf("http://localhost%s/metrics", s.httpServer.Addr)),
-	)
-	return s.httpServer.ListenAndServe()
+s.log.Info("servidor HTTP iniciado",
+zap.String("addr",      s.httpServer.Addr),
+zap.String("dashboard", fmt.Sprintf("http://localhost%s/dashboard", s.httpServer.Addr)),
+zap.String("health",    fmt.Sprintf("http://localhost%s/health",    s.httpServer.Addr)),
+zap.String("metrics",   fmt.Sprintf("http://localhost%s/metrics",   s.httpServer.Addr)),
+zap.String("kpis",      fmt.Sprintf("http://localhost%s/api/kpis",  s.httpServer.Addr)),
+)
+return s.httpServer.ListenAndServe()
 }
 
 // Shutdown realiza un shutdown graceful con el contexto provisto.
 func (s *Server) Shutdown(ctx context.Context) error {
-	return s.httpServer.Shutdown(ctx)
+return s.httpServer.Shutdown(ctx)
 }
 
 // handleHealth devuelve el estado del servicio en formato JSON.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+w.Header().Set("Content-Type", "application/json")
 
-	resp := map[string]interface{}{
-		"status":           "ok",
-		"timestamp":        time.Now().UTC().Format(time.RFC3339),
-		"connected_clients": s.dispatcher.ClientCount(),
-	}
-
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		s.log.Error("error escribiendo health response", zap.Error(err))
-	}
+resp := map[string]interface{}{
+"status":    "ok",
+"timestamp": time.Now().UTC().Format(time.RFC3339),
+"service":   "go-binlog-service",
 }
 
-// handleInfo devuelve información de configuración no sensible del servicio.
-func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	resp := map[string]interface{}{
-		"service":          "go-binlog-service",
-		"version":          "1.0.0",
-		"connected_clients": s.dispatcher.ClientCount(),
-		"endpoints": map[string]string{
-			"websocket": "/ws",
-			"sse":       "/events",
-			"health":    "/health",
-			"metrics":   "/metrics",
-		},
-	}
-
-	_ = json.NewEncoder(w).Encode(resp)
+if err := json.NewEncoder(w).Encode(resp); err != nil {
+s.log.Error("error escribiendo health response", zap.Error(err))
 }
-
-// handleDashboard sirve el archivo dashboard.html embebido en el binario.
-func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	http.ServeFile(w, r, "/app/dashboard.html")
-}
-
-// handleRoot redirige la raíz al dashboard.
-func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-	http.Redirect(w, r, "/dashboard", http.StatusFound)
-}
-
-// loggingMiddleware registra cada request HTTP con método, path y duración.
-func loggingMiddleware(log *zap.Logger, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		next.ServeHTTP(w, r)
-		log.Info("request HTTP",
-			zap.String("method", r.Method),
-			zap.String("path", r.URL.Path),
-			zap.String("remote", r.RemoteAddr),
-			zap.Duration("duration", time.Since(start)),
-		)
-	})
 }

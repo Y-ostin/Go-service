@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	gmclient "github.com/go-mysql-org/go-mysql/client"
 	gm "github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/google/uuid"
@@ -145,13 +146,16 @@ func (l *Listener) runOnce(ctx context.Context) error {
 	var streamer *replication.BinlogStreamer
 
 	if pos.IsZero() {
-		// Primera ejecución: obtener la posición ACTUAL del master
-		l.log.Info("primera ejecución, registrando desde binlog actual")
-		// Conectar al master con posición 0 para obtener la actual
-		streamer, err = syncer.StartSync(gm.Position{
-			Name: "",
-			Pos:  0,
-		})
+		// Primera ejecución: consultar SHOW MASTER STATUS para obtener posición actual real
+		masterPos, posErr := l.getMasterPosition()
+		if posErr != nil {
+			return fmt.Errorf("error obteniendo posición del master: %w", posErr)
+		}
+		l.log.Info("primera ejecución, iniciando desde posición actual del master",
+			zap.String("file", masterPos.Name),
+			zap.Uint32("pos", masterPos.Pos),
+		)
+		streamer, err = syncer.StartSync(masterPos)
 	} else {
 		l.log.Info("reanudando desde posición guardada",
 			zap.String("file", pos.File),
@@ -211,6 +215,30 @@ func (l *Listener) runOnce(ctx context.Context) error {
 		l.processEvent(ctx, rawEvt, tableMap, &lastPos)
 	}
 }
+
+// getMasterPosition consulta SHOW MASTER STATUS en MariaDB y devuelve la posición actual.
+func (l *Listener) getMasterPosition() (gm.Position, error) {
+	addr := fmt.Sprintf("%s:%d", l.cfg.DB.Host, l.cfg.DB.Port)
+	conn, err := gmclient.Connect(addr, l.cfg.DB.User, l.cfg.DB.Password, "")
+	if err != nil {
+		return gm.Position{}, fmt.Errorf("connect para SHOW MASTER STATUS: %w", err)
+	}
+	defer conn.Close()
+
+	res, err := conn.Execute("SHOW MASTER STATUS")
+	if err != nil {
+		return gm.Position{}, fmt.Errorf("SHOW MASTER STATUS: %w", err)
+	}
+	if len(res.Values) == 0 {
+		return gm.Position{}, fmt.Errorf("SHOW MASTER STATUS devolvió vacío — ¿binlog habilitado?")
+	}
+
+	row := res.Values[0]
+	file := string(row[0].AsString())
+	pos := uint32(row[1].AsUint64())
+	return gm.Position{Name: file, Pos: pos}, nil
+}
+
 
 // processEvent despacha el raw event al handler correcto según su tipo.
 func (l *Listener) processEvent(

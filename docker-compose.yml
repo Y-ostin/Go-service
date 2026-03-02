@@ -38,9 +38,10 @@ services:
       dockerfile: Dockerfile
     container_name: ccip_go_binlog
     restart: unless-stopped
-    depends_on:
-      mariadb:
-        condition: service_healthy
+    # depends_on mariadb desactivado — usamos XAMPP del host
+    # depends_on:
+    #   mariadb:
+    #     condition: service_healthy
     environment:
       # Servidor
       SERVER_PORT: "8090"
@@ -48,12 +49,12 @@ services:
 
       # ── Origen de la base de datos ──────────────────────────────────────────
       # OPCIÓN A: MariaDB contenedor (activo)
-      DB_HOST: "mariadb"
+      #DB_HOST: "mariadb"
       # OPCIÓN B: XAMPP en el host — comentar la línea de arriba y descomentar esta:
-      # DB_HOST: "host.docker.internal"
+      DB_HOST: "host.docker.internal"
       DB_PORT: "3306"
       DB_REPL_USER: "replicator"
-      DB_REPL_PASSWORD: "repl_password_seguro"
+      DB_REPL_PASSWORD: "12345678"
       # CRÍTICO: server-id único, diferente al server-id del MariaDB (que es 1)
       DB_SERVER_ID: "100"
 
@@ -61,9 +62,23 @@ services:
       BINLOG_FLAVOR: "mariadb"
       BINLOG_USE_GTID: "false"
       # Tablas a monitorear (separadas por coma)
-      # Vacío = monitorear todo el schema configurado
       BINLOG_SCHEMAS: "ccip_erp_legacy"
       BINLOG_TABLES: ""
+
+      # ── Credenciales para el endpoint /api/kpis (SELECT) ────────────────────
+      DB_QUERY_USER: "root"
+      DB_QUERY_PASSWORD: ""
+      DB_NAME: "ccip_erp_legacy"
+
+      # ── MQTT Publisher → EMQX Cloud ──────────────────────────────────────
+      MQTT_ENABLED: "true"
+      MQTT_BROKER: "s9a612f1.ala.eu-central-1.emqxsl.com"
+      MQTT_PORT: "8883"
+      MQTT_CLIENT_ID: "ccip-go-binlog"
+      MQTT_USERNAME: "ccip-admin"
+      MQTT_PASSWORD: "12345678"
+      MQTT_CA_CERT: "/app/emqxsl-ca.crt"
+      MQTT_TOPIC: "ccip/dashboard"
 
       # Persistencia de posición
       POSITION_STORAGE: "file"
