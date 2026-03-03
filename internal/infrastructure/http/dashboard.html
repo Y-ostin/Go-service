@@ -86,7 +86,7 @@
       <span class="text-xs text-slate-500"><span id="lblVsEgresos">vs mes anterior</span>
         (<span id="valEgresosAnt" class="text-slate-400">—</span>)</span>
     </div>
-    <p class="text-xs text-slate-500 mt-2">payment_approvals · is_validated = 1</p>
+    <p class="text-xs text-slate-500 mt-2">general_expenses · COALESCE(expense_date, created_at)</p>
   </div>
 
 </section>
@@ -390,13 +390,13 @@ function buildDonut(canvasId, centerId, legendId, slices, accentColor) {
   if (!canvas) return;
 
   // Agrupar slices más allá del top 8 en "Otros"
-  var MAX_SLICES = 8;
+  var MAX_SLICES = 10;
   var displaySlices = slices;
   if (slices.length > MAX_SLICES) {
     var top   = slices.slice(0, MAX_SLICES);
     var rest  = slices.slice(MAX_SLICES);
     var otrosVal = rest.reduce(function(a, s){ return a + s.value; }, 0);
-    if (otrosVal > 0) top = top.concat([{label: 'Otros (' + rest.length + ')', value: otrosVal}]);
+    if (otrosVal > 0) top = top.concat([{label: 'GASTOS MENORES AGRUPADOS (BANDEOS, CTS, ENCOMIENDA... ) - (' + rest.length + ')', value: otrosVal}]);
     displaySlices = top;
   }
 

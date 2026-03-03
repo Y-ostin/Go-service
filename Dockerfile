@@ -18,6 +18,10 @@ RUN go get gorm.io/gorm@v1.25.10 && \
 # Copiar el resto del código fuente
 COPY . .
 
+# Copiar archivos estáticos necesarios para el runtime desde su ubicación real
+# El archivo dashboard.html está en una subcarpeta y lo queremos en la raíz /app
+RUN cp internal/infrastructure/http/dashboard.html /app/dashboard.html
+
 # Sincronizar go.sum con las dependencias reales del código
 RUN go mod tidy
 

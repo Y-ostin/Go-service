@@ -1,5 +1,5 @@
 ﻿// Package http implementa el servidor HTTP del servicio con endpoints para:
-//   - GET /dashboard           → dashboard HTML embebido
+//   - GET /dashboard           → dashboard HTML desde disco
 //   - GET /health              → health check JSON
 //   - GET /metrics             → métricas Prometheus
 //   - GET /api/kpis            → KPIs financieros del mes
@@ -7,23 +7,18 @@
 package http
 
 import (
-_ "embed"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
 
-"context"
-"encoding/json"
-"fmt"
-"net/http"
-"time"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
 
-"github.com/prometheus/client_golang/prometheus/promhttp"
-"go.uber.org/zap"
-"gorm.io/gorm"
-
-"github.com/ccip/go-service/internal/config"
+	"github.com/ccip/go-service/internal/config"
 )
-
-//go:embed dashboard.html
-var dashboardHTML string
 
 // Server encapsula el servidor HTTP con el endpoint de KPIs.
 type Server struct {
@@ -62,16 +57,15 @@ h.ServeHTTP(w, r)
 }
 
 // ── Endpoints ─────────────────────────────────────────────────────────────
-mux.HandleFunc("/health", s.handleHealth)
-mux.Handle("/metrics", promhttp.Handler())
+	mux.HandleFunc("/health", s.handleHealth)
+	mux.Handle("/metrics", promhttp.Handler())
 
-// ── Dashboard HTML embebido ──────────────────────────────────────────────
-mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(dashboardHTML))
-})
+	// ── Dashboard HTML desde disco ──────────────────────────────────────────
+	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "dashboard.html")
+	})
 
-// ── API KPIs financieros (GORM) ───────────────────────────────────────
+	// ── API KPIs financieros (GORM) ───────────────────────────────────────
 	kpiHandler := NewKPIHandler(s.gormDB, log)
 	mux.Handle("/api/kpis", withCORS(kpiHandler))
 	mux.Handle("/api/kpis/periods",   withCORS(http.HandlerFunc(kpiHandler.ServePeriodsHTTP)))
