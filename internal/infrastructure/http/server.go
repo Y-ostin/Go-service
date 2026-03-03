@@ -43,18 +43,19 @@ gormDB: gormDB,
 
 mux := http.NewServeMux()
 
-//  CORS wrapper: permite acceso desde cualquier origen (dev local) 
-withCORS := func(h http.Handler) http.Handler {
-return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-w.Header().Set("Access-Control-Allow-Origin", "*")
-w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Cache-Control")
-if r.Method == http.MethodOptions {
-w.WriteHeader(http.StatusNoContent)
-return
-}
-h.ServeHTTP(w, r)
-})
-}
+// CORS wrapper: permite acceso desde cualquier origen (dev local)
+	withCORS := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Cache-Control")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			h.ServeHTTP(w, r)
+		})
+	}
 
 // ── Endpoints ─────────────────────────────────────────────────────────────
 	mux.HandleFunc("/health", s.handleHealth)

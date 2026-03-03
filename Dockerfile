@@ -50,7 +50,7 @@ WORKDIR /app
 
 # Copiar el binario compilado, el dashboard estático y el CA cert de EMQX
 COPY --from=builder /app/go-binlog-service .
-COPY --from=builder /app/dashboard.html .
+#COPY --from=builder /app/dashboard.html .
 COPY --from=builder /app/emqxsl-ca.crt .
 
 # Directorio para persistir la posición del binlog
